@@ -19,12 +19,25 @@
 
 int main(int argc, char **argv)
 {
-    if(validargs(argc, argv))
+    if(validargs(argc, argv)){
         USAGE(*argv, EXIT_FAILURE);
-    if(global_options == HELP_OPTION)
+    }
+    if(global_options == HELP_OPTION){
         USAGE(*argv, EXIT_SUCCESS);
-    // TO BE IMPLEMENTED
-    return EXIT_FAILURE;
+    }
+
+    if(global_options > CANONICALIZE_OPTION + PRETTY_PRINT_OPTION)
+        indent_level = global_options - CANONICALIZE_OPTION - PRETTY_PRINT_OPTION;
+    else
+        indent_level = 0;
+    ARGO_VALUE *p = argo_read_value(stdin);
+    //printf("%i",p->type);
+    int res = argo_write_value(p, stdout);
+    if(res)
+        return EXIT_FAILURE;
+    else
+        return EXIT_SUCCESS;
+
 }
 
 /*
