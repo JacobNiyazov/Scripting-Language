@@ -12,6 +12,7 @@
 #include "buffer.h"    /* Also includes <stddef.h>.                       */
 #include "errmsg.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
@@ -71,7 +72,19 @@ static int choosebreaks(
       }
     }
     if (w1->score < 0) {
-      sprintf(errmsg,impossibility,1);
+      char *str;
+      size_t size_len;
+      FILE *stream = open_memstream(&str, &size_len);
+      if (stream == NULL){
+        set_error("open_memstream error.\n");
+        return 0;
+      }
+      fprintf(stream, "Impossibility #%d has occurred. Please report it.\n", 1);
+      fflush(stream);
+      fclose(stream);
+      set_error(str);
+      free(str);
+      // sprintf(errmsg,impossibility,1);
       return 0;
     }
   }
@@ -110,7 +123,19 @@ static int choosebreaks(
 
     newL = head->next ? head->next->score : 0;
     if (newL > L) {
-      sprintf(errmsg,impossibility,2);
+      char *str;
+      size_t size_len;
+      FILE *stream = open_memstream(&str, &size_len);
+      if (stream == NULL){
+        set_error("open_memstream error.\n");
+        return 0;
+      }
+      fprintf(stream, "Impossibility #%d has occurred. Please report it.\n", 2);
+      fflush(stream);
+      fclose(stream);
+      set_error(str);
+      free(str);
+      // sprintf(errmsg,impossibility,2);
       return 0;
     }
   }
@@ -144,11 +169,22 @@ static int choosebreaks(
   }
 
   if (head->next && head->next->score < 0) {
-    sprintf(errmsg,impossibility,3);
+    char *str;
+      size_t size_len;
+      FILE *stream = open_memstream(&str, &size_len);
+      if (stream == NULL){
+        set_error("open_memstream error.\n");
+        return 0;
+      }
+      fprintf(stream, "Impossibility #%d has occurred. Please report it.\n", 3);
+      fflush(stream);
+      fclose(stream);
+      set_error(str);
+      free(str);
+    // sprintf(errmsg,impossibility,3);
     return 0;
   }
 
-  *errmsg = '\0';
   return newL;
 }
 
@@ -158,15 +194,19 @@ char **reformat(const char * const *inlines, int width,
 {
   int numin, numout, affix, L, linelen, newL;
   const char * const *line, **suffixes = NULL, **suf, *end, *p1, *p2;
-  char *q1, *q2, **outlines;
+  char *q1, *q2, **outlines = NULL;
   struct word dummy, *head, *tail, *w1, *w2;
   struct buffer *pbuf = NULL;
 
 /* Initialization: */
 
-  *errmsg = '\0';
   dummy.next = dummy.prev = NULL;
   head = tail = &dummy;
+
+  if(width <= (prefix + suffix)){
+    set_error("Width shorter than <prefix> + <suffix>.\n");
+    goto rfcleanup;
+  }
 
 /* Count the input lines: */
 
@@ -178,7 +218,7 @@ char **reformat(const char * const *inlines, int width,
   if (numin) {
     suffixes = malloc(numin * sizeof (const char *));
     if (!suffixes) {
-      strcpy(errmsg,outofmem);
+      set_error("Out of memory.\n");
       goto rfcleanup;
     }
   }
@@ -191,9 +231,23 @@ char **reformat(const char * const *inlines, int width,
   for (line = inlines, suf = suffixes;  *line;  ++line, ++suf) {
     for (end = *line;  *end;  ++end);
     if (end - *line < affix) {
-      sprintf(errmsg,
-              "Line %d shorter than <prefix> + <suffix> = %d + %d = %d\n",
+      char *str;
+      size_t size_len;
+      FILE *stream = open_memstream(&str, &size_len);
+      if (stream == NULL){
+        set_error("open_memstream error.\n");
+        goto rfcleanup;
+      }
+      fprintf(stream, "Line %ld shorter than <prefix> + <suffix> = %d + %d = %d\n",
               line - inlines + 1, prefix, suffix, affix);
+      fflush(stream);
+      fclose(stream);
+      set_error(str);
+      free(str);
+
+      // sprintf(errmsg,
+      //         "Line %ld shorter than <prefix> + <suffix> = %d + %d = %d\n",
+      //         line - inlines + 1, prefix, suffix, affix);
       goto rfcleanup;
     }
     end -= suffix;
@@ -207,7 +261,7 @@ char **reformat(const char * const *inlines, int width,
       if (p2 - p1 > L) p2 = p1 + L;
       w1 = malloc(sizeof (struct word));
       if (!w1) {
-        strcpy(errmsg,outofmem);
+        set_error("Out of memory.\n");
         goto rfcleanup;
       }
       w1->next = NULL;
@@ -234,12 +288,12 @@ char **reformat(const char * const *inlines, int width,
 /* Choose line breaks according to policy in "par.doc": */
 
   newL = choosebreaks(head,tail,L,last,min);
-  if (*errmsg) goto rfcleanup;
+  if (is_error()) goto rfcleanup;
 
 /* Construct the lines: */
 
   pbuf = newbuffer(sizeof (char *));
-  if (*errmsg) goto rfcleanup;
+  if (is_error()) goto rfcleanup;
 
   numout = 0;
   w1 = head->next;
@@ -249,11 +303,11 @@ char **reformat(const char * const *inlines, int width,
                        prefix;
     q1 = malloc((linelen + 1) * sizeof (char));
     if (!q1) {
-      strcpy(errmsg,outofmem);
+      set_error("Out of memory.\n");
       goto rfcleanup;
     }
     additem(pbuf, &q1);
-    if (*errmsg) goto rfcleanup;
+    if (is_error()) goto rfcleanup;
     ++numout;
     q2 = q1 + prefix;
     if      (numout <= numin) memcpy(q1, inlines[numout - 1], prefix);
@@ -280,7 +334,7 @@ char **reformat(const char * const *inlines, int width,
 
   q1 = NULL;
   additem(pbuf, &q1);
-  if (*errmsg) goto rfcleanup;
+  if (is_error()) goto rfcleanup;
 
   outlines = copyitems(pbuf);
 

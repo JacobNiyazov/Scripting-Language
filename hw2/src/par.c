@@ -16,10 +16,16 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <getopt.h>
+#include <stdbool.h>
+
 
 #undef NULL
 #define NULL ((void *) 0)
-
+#define OPTIONAL_ARGUMENT \
+    ((optarg == NULL && optind < argc && opt[optind][0] != '-') \
+     ? (bool) (optarg = opt[optind++]) \
+     : (optarg != NULL))
 
 const char * const progname = "par";
 const char * const version = "3.20";
@@ -70,56 +76,250 @@ static int strtoudec(const char *s, int *pn)
 }
 
 
-static void parseopt(
-  const char *opt, int *pwidth, int *pprefix,
+static void parseopt(int argc,
+  char * const *opt, int *pwidth, int *pprefix,
   int *psuffix, int *phang, int *plast, int *pmin
 )
 /* Parses the single option in opt, setting *pwidth, *pprefix,     */
 /* *psuffix, *phang, *plast, or *pmin as appropriate. Uses errmsg. */
 {
-  const char *saveopt = opt;
-  char oc;
-  int n, r;
+  // bool isVersion = false;
+  // bool isError = false;
+  static int lastVal;
+  static int minVal;
 
-  if (*opt == '-') ++opt;
+  static struct option long_options[] = {
+    {"version", no_argument, 0, 'v'},
+    {"width", required_argument, 0, 'w'},
+    {"prefix", required_argument, 0, 'p'},
+    {"suffix", required_argument, 0, 's'},
+    {"hang", required_argument, 0, 'h'},
+    {"last", no_argument, &lastVal, 1},
+    {"no-last", no_argument, &lastVal, 0},
+    {"min", no_argument, &minVal, 1},
+    {"no-min", no_argument, &minVal, 0},
+    {NULL, 0, 0, '\0'}
+  };
 
-  if (!strcmp(opt, "version")) {
-    sprintf(errmsg, "%s %s\n", progname, version);
-    return;
-  }
+  int option_index = 0;
+  int c;
+  while((c = getopt_long(argc, opt, "w:p:s:h::l::m::", long_options, &option_index)) != -1){
+    switch(c){
+      case 'v':{
+        char *str;
+        size_t size_len;
+        FILE *stream = open_memstream(&str, &size_len);
+        if (stream == NULL){
+          set_error("open_memstream error.\n");
+          return;
+        }
+        fprintf(stream, "%s %s\n", progname, version);
+        fflush(stream);
+        fclose(stream);
+        set_error(str);
+        free(str);
+        //sprintf(errmsg, "%s %s\n", progname, version);
+        return;
+      }
+      case 'w':
+        if(optarg){
+          int res = strtoudec(optarg, pwidth);
+          if(res)
+            break;
+          else{
+            set_error("Parsing Arguments Error.\n");
+            return;
+          }
+        }
+        else{
+          set_error("Parsing Arguments Error.\n");
+          return;
+        }
+      case 'p':
+        if(optarg){
+          int res = strtoudec(optarg, pprefix);
+          if(res)
+            break;
+          else{
+            set_error("Parsing Arguments Error.\n");
+            return;
+          }
+        }
+        else{
+          set_error("Parsing Arguments Error.\n");
+          return;
+        }
+      case 's':
+        if(optarg){
+          int res = strtoudec(optarg, psuffix);
+          if(res)
+            break;
+          else{
+            set_error("Parsing Arguments Error.\n");
+            return;
+          }
+        }
+        else{
+          set_error("Parsing Arguments Error.\n");
+          return;
+        }
+      case 'h':
+        if(OPTIONAL_ARGUMENT){
+          int res = strtoudec(optarg, phang);
+          if(res)
+            break;
+          else{
+            set_error("Parsing Arguments Error.\n");
+            return;
+          }
+        }
+        else{
+          *phang = 1;
+        }
+      case 'l':
+        if(OPTIONAL_ARGUMENT){
+          int *temp = malloc(sizeof(int));
+          int res = strtoudec(optarg, temp);
+          if(res){
+            if(*temp == 0 || *temp == 1){
+              *plast = *temp;
+              free(temp);
+              break;
+            }
+            else{
+              free(temp);
+              set_error("Parsing Arguments Error.\n");
+              return;
+            }
+          }
+          else{
+            free(temp);
+            set_error("Parsing Arguments Error.\n");
+            return;
+          }
+        }
+        else{
+          *plast = 1;
+          break;
+        }
+      case 'm':
+        if(OPTIONAL_ARGUMENT){
+          int *temp = malloc(sizeof(int));
+          int res = strtoudec(optarg, temp);
+          if(res){
+            if(*temp == 0 || *temp == 1){
+              *pmin = *temp;
+              free(temp);
+              break;
+            }
+            else{
+              free(temp);
+              set_error("Parsing Arguments Error.\n");
+              return;
+            }
+          }
+          else{
+            free(temp);
+            set_error("Parsing Arguments Error.\n");
+            return;
+          }
+        }
+        else{
+          *pmin = 1;
+          break;
+        }
+      case 0:
+        if (long_options[option_index].flag != 0){
+          if(strcmp(long_options[option_index].name,"no-last") == 0 || strcmp(long_options[option_index].name,"last") == 0){
+            *plast = lastVal;
+            break;
+          }
+          else{
+            *pmin = minVal;
+            break;
+          }
+        }
+        break;
 
-  oc = *opt;
+      default:
+        set_error("Parsing Arguments Error.\n");
+        return;
 
-  if (isdigit(oc)) {
-    if (!strtoudec(opt, &n)) goto badopt;
-    if (n <= 8) *pprefix = n;
-    else *pwidth = n;
-  }
-  else {
-    if (!oc) goto badopt;
-    n = 1;
-    r = strtoudec(opt + 1, &n);
-    if (opt[1] && !r) goto badopt;
-
-    if (oc == 'w' || oc == 'p' || oc == 's') {
-      if (!r) goto badopt;
-      if      (oc == 'w') *pwidth  = n;
-      else if (oc == 'p') *pprefix = n;
-      else                *psuffix = n;
     }
-    else if (oc == 'h') *phang = n;
-    else if (n <= 1) {
-      if      (oc == 'l') *plast = n;
-      else if (oc == 'm') *pmin = n;
-    }
-    else goto badopt;
+
   }
 
-  *errmsg = '\0';
+  int *num = malloc(sizeof(int));
+  while(optind < argc){
+    char *arg = opt[optind];
+    int res = strtoudec(arg, num);
+    if(res){
+      if(*num <= 8)
+        *pprefix = *num;
+      else if(*num >= 9)
+        *pwidth = *num;
+    }
+    else{
+      set_error("Parsing Arguments Error.\n");
+      return;
+    }
+    optind++;
+  }
+  free(num);
+
+  // if(isVersion){
+  //   sprintf(errmsg, "%s %s\n", progname, version);
+  //   return;
+  // }
+  // else if(isError){
+  //   sprintf(errmsg, "%s ERROR\n", progname);
+  //   return;
+  // }
+
   return;
+//   const char *saveopt = opt;
+//   char oc;
+//   int n, r;
 
-badopt:
-  sprintf(errmsg, "Bad option: %.149s\n", saveopt);
+//   if (*opt == '-') ++opt;
+
+//   if (!strcmp(opt, "version")) {
+//     sprintf(errmsg, "%s %s\n", progname, version);
+//     return;
+//   }
+
+//   oc = *opt;
+
+//   if (isdigit(oc)) {
+//     if (!strtoudec(opt, &n)) goto badopt;
+//     if (n <= 8) *pprefix = n;
+//     else *pwidth = n;
+//   }
+//   else {
+//     if (!oc) goto badopt;
+//     n = 1;
+//     r = strtoudec(opt + 1, &n);
+//     if (opt[1] && !r) goto badopt;
+
+//     if (oc == 'w' || oc == 'p' || oc == 's') {
+//       if (!r) goto badopt;
+//       if      (oc == 'w') *pwidth  = n;
+//       else if (oc == 'p') *pprefix = n;
+//       else                *psuffix = n;
+//     }
+//     else if (oc == 'h') *phang = n;
+//     else if (n <= 1) {
+//       if      (oc == 'l') *plast = n;
+//       else if (oc == 'm') *pmin = n;
+//     }
+//     else goto badopt;
+//   }
+
+//   *errmsg = '\0';
+//   return;
+
+// badopt:
+//   sprintf(errmsg, "Bad option: %.149s\n", saveopt);
 }
 
 
@@ -135,9 +335,9 @@ static char **readlines(void)
   char ch, *ln, *nullline = NULL, nullchar = '\0', **lines = NULL;
 
   cbuf = newbuffer(sizeof (char));
-  if (*errmsg) goto rlcleanup;
+  if (is_error()) goto rlcleanup;
   pbuf = newbuffer(sizeof (char *));
-  if (*errmsg) goto rlcleanup;
+  if (is_error()) goto rlcleanup;
 
   for (blank = 1;  ; ) {
     c = getchar();
@@ -148,11 +348,11 @@ static char **readlines(void)
         break;
       }
       additem(cbuf, &nullchar);
-      if (*errmsg) goto rlcleanup;
+      if (is_error()) goto rlcleanup;
       ln = copyitems(cbuf);
-      if (*errmsg) goto rlcleanup;
+      if (is_error()) goto rlcleanup;
       additem(pbuf, &ln);
-      if (*errmsg) goto rlcleanup;
+      if (is_error()) goto rlcleanup;
       clearbuffer(cbuf);
       blank = 1;
     }
@@ -160,21 +360,21 @@ static char **readlines(void)
       if (!isspace(c)) blank = 0;
       ch = c;
       additem(cbuf, &ch);
-      if (*errmsg) goto rlcleanup;
+      if (is_error()) goto rlcleanup;
     }
   }
 
   if (!blank) {
     additem(cbuf, &nullchar);
-    if (*errmsg) goto rlcleanup;
+    if (is_error()) goto rlcleanup;
     ln = copyitems(cbuf);
-    if (*errmsg) goto rlcleanup;
+    if (is_error()) goto rlcleanup;
     additem(pbuf, &ln);
-    if (*errmsg) goto rlcleanup;
+    if (is_error()) goto rlcleanup;
   }
 
   additem(pbuf, &nullline);
-  if (*errmsg) goto rlcleanup;
+  if (is_error()) goto rlcleanup;
   lines = copyitems(pbuf);
 
 rlcleanup:
@@ -187,6 +387,7 @@ rlcleanup:
         if (!lines) break;
         free(*lines);
       }
+    freebuffer(pbuf);
   }
 
   return lines;
@@ -212,7 +413,7 @@ static void setdefaults(
   for (line = inlines;  *line;  ++line);
   numlines = line - inlines;
 
-  if (*pprefix < 0)
+  if (*pprefix < 0){
     if (numlines <= *phang + 1)
       *pprefix = 0;
     else {
@@ -224,15 +425,16 @@ static void setdefaults(
       }
       *pprefix = end - start;
     }
+  }
 
-  if (*psuffix < 0)
+  if (*psuffix < 0){
     if (numlines <= 1)
       *psuffix = 0;
     else {
       start = *inlines;
       for (end = start;  *end;  ++end);
       for (line = inlines + 1;  *line;  ++line) {
-        for (p2 = *line;  *p2;  ++p2)
+        for (p2 = *line;  *p2;  ++p2);
         for (p1 = end;
              p1 > start && p2 > *line && p1[-1] == p2[-1];
              --p1, --p2);
@@ -241,6 +443,7 @@ static void setdefaults(
       while (end - start >= 2 && isspace(*start) && isspace(start[1])) ++start;
       *psuffix = end - start;
     }
+  }
 }
 
 
@@ -248,16 +451,17 @@ static void freelines(char **lines)
 /* Frees the strings pointed to in the NULL-terminated array lines, then */
 /* frees the array. Does not use errmsg because it always succeeds.      */
 {
-  char *line;
-
-  for (line = *lines;  *line;  ++line)
-    free(line);
+  char **line;
+  for (line = lines;  *line;  ++line){
+    char *tl = *line;
+    free(tl);
+  }
 
   free(lines);
 }
 
 
-main(int argc, const char * const *argv)
+int original_main(int argc, char * const *argv)
 {
   int width, widthbak = -1, prefix, prefixbak = -1, suffix, suffixbak = -1,
       hang, hangbak = -1, last, lastbak = -1, min, minbak = -1, c;
@@ -265,30 +469,47 @@ main(int argc, const char * const *argv)
        **line;
   const char * const whitechars = " \f\n\r\t\v";
 
+  //putenv("PARINIT=bin/par -w 20 3 --last --min -h");
+  char **otherArgv = malloc(0);
   parinit = getenv("PARINIT");
   if (parinit) {
     picopy = malloc((strlen(parinit) + 1) * sizeof (char));
     if (!picopy) {
-      strcpy(errmsg,outofmem);
+      set_error("Out of memory.\n");
       goto parcleanup;
     }
+    int numArgs = 0;
     strcpy(picopy,parinit);
     opt = strtok(picopy,whitechars);
     while (opt) {
-      parseopt(opt, &widthbak, &prefixbak,
-               &suffixbak, &hangbak, &lastbak, &minbak);
-      if (*errmsg) goto parcleanup;
+      numArgs++;
+      otherArgv = realloc(otherArgv, sizeof(char *)*numArgs);
+      otherArgv[numArgs-1] = opt;
+
+      // parseopt(argc, opt, &widthbak, &prefixbak,
+      //          &suffixbak, &hangbak, &lastbak, &minbak);
       opt = strtok(NULL,whitechars);
     }
+    parseopt(numArgs, otherArgv, &widthbak, &prefixbak,
+               &suffixbak, &hangbak, &lastbak, &minbak);
+    if (is_error()) goto parcleanup;
     free(picopy);
+    free(otherArgv);
     picopy = NULL;
+    otherArgv = NULL;
   }
 
-  while (*++argv) {
-    parseopt(*argv, &widthbak, &prefixbak,
-             &suffixbak, &hangbak, &lastbak, &minbak);
-    if (*errmsg) goto parcleanup;
-  }
+  optind = 1;
+  parseopt(argc, argv, &widthbak, &prefixbak,
+           &suffixbak, &hangbak, &lastbak, &minbak);
+  if (is_error()) goto parcleanup;
+  // printf("widthbak = %d\n", widthbak);
+  // printf("prefixbak = %d\n", prefixbak);
+  // printf("suffixbak = %d\n", suffixbak);
+  // printf("hangbak = %d\n", hangbak);
+  // printf("lastbak = %d\n", lastbak);
+  // printf("minbak = %d\n", minbak);
+
 
   for (;;) {
     for (;;) {
@@ -296,10 +517,12 @@ main(int argc, const char * const *argv)
       if (c != '\n') break;
       putchar(c);
     }
+    if(c == EOF)
+      break;
     ungetc(c,stdin);
 
     inlines = readlines();
-    if (*errmsg) goto parcleanup;
+    if (is_error()) goto parcleanup;
     if (!*inlines) {
       free(inlines);
       inlines = NULL;
@@ -313,7 +536,7 @@ main(int argc, const char * const *argv)
 
     outlines = reformat((const char * const *) inlines,
                         width, prefix, suffix, hang, last, min);
-    if (*errmsg) goto parcleanup;
+    if (is_error()) goto parcleanup;
 
     freelines(inlines);
     inlines = NULL;
@@ -328,11 +551,13 @@ main(int argc, const char * const *argv)
 parcleanup:
 
   if (picopy) free(picopy);
+  if (otherArgv) free(otherArgv);
   if (inlines) freelines(inlines);
   if (outlines) freelines(outlines);
 
-  if (*errmsg) {
-    fprintf(stderr, "%.163s", errmsg);
+  if (is_error()) {
+    report_error(stderr);
+    clear_error();
     exit(EXIT_FAILURE);
   }
 
