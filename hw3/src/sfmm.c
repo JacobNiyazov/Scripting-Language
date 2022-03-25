@@ -12,7 +12,7 @@
 
 void init_heap();
 int extend_heap();
-int coalesce(int ext);
+int coalesce();
 int get_correct_free_list(size_t size);
 int get_correct_quick_list(size_t size);
 
@@ -26,7 +26,6 @@ void *sf_malloc(sf_size_t size) {
     if(sizeNeeded < 32)
         sizeNeeded = 32;
     sizeNeeded = ((sizeNeeded - 1)|15)+1;
-    // printf("SIZE NEEDED = %ld\n", sizeNeeded);
 
     // check quick lists
     for(int i = 0; i < NUM_QUICK_LISTS; i++){
@@ -46,11 +45,8 @@ void *sf_malloc(sf_size_t size) {
         int index = get_correct_free_list(sizeNeeded);
         for(int i = index; i < NUM_FREE_LISTS; i++){
             sf_block *head = &sf_free_list_heads[i];
-            // printf("head :: %p\n",head);
             sf_block *temp = head->body.links.next;
-            // printf("header :: %ld\n",(temp->header ^ MAGIC) & 0x00000000FFFFFFF0);
-            // printf("index :: %d\n",i);
-            // printf("temp :: %p\n",temp);
+
             while(temp != head){
                 int blksize = (temp->header ^ MAGIC) & 0x00000000FFFFFFF0;
                 if(blksize >= sizeNeeded){
@@ -74,12 +70,10 @@ void *sf_malloc(sf_size_t size) {
 
                         sf_free_list_heads[newidx].body.links.next->body.links.prev = new_free_blk;
                         sf_free_list_heads[newidx].body.links.next = new_free_blk;
-                        
 
 
                         //temp->body.links.next->prev_footer = (newBlkSize + isPrevAloc) ^ MAGIC;
-
-                        temp->header = (sizeNeeded + THIS_BLOCK_ALLOCATED + isPrevAloc) ^ MAGIC;
+                        temp->header = (((uint64_t)size << 32) + sizeNeeded + THIS_BLOCK_ALLOCATED + isPrevAloc) ^ MAGIC;
                         nextBlk->prev_footer = (newBlkSize + PREV_BLOCK_ALLOCATED) ^ MAGIC;
 
                         return temp->body.payload;
@@ -87,7 +81,6 @@ void *sf_malloc(sf_size_t size) {
                     }
                     // splinter
                     else{
-                        // printf("%ld\n", sf_mem_end() - sf_mem_start());
                         sf_block *nextBlk = (sf_block *)((char *)temp + blksize);
                         nextBlk->header = ((nextBlk->header ^ MAGIC) | PREV_BLOCK_ALLOCATED) ^ MAGIC;
 
@@ -95,12 +88,11 @@ void *sf_malloc(sf_size_t size) {
                         temp->body.links.next->body.links.prev = temp->body.links.prev;
 
                         int isPrevAloc = (temp->header ^ MAGIC) & PREV_BLOCK_ALLOCATED;
-                        temp->header = (blksize + isPrevAloc + THIS_BLOCK_ALLOCATED) ^ MAGIC;
+                        temp->header = (((uint64_t)size << 32) + blksize + isPrevAloc + THIS_BLOCK_ALLOCATED) ^ MAGIC;
                         return temp->body.payload;
                     }
                 }
                 temp = temp->body.links.next;
-                // printf("tempN :: %p\n",temp);
 
             }
         }
@@ -110,10 +102,8 @@ void *sf_malloc(sf_size_t size) {
             sf_errno = ENOMEM;
             return NULL;
         }
-        // printf("hisd\n");
-        sf_show_heap();
-        // printf("\n");
-        coalesce(1);
+
+        coalesce();
     }
     void *output = NULL;
     return output;
@@ -166,7 +156,7 @@ void sf_free(void *pp) {
                 curr->body.links.prev = &sf_free_list_heads[index];
                 sf_free_list_heads[index].body.links.next = curr;
             }
-            coalesce(0);
+            coalesce();
         }
 
         // insert
@@ -187,10 +177,8 @@ void sf_free(void *pp) {
         blk->body.links.prev = &sf_free_list_heads[index];
         sf_free_list_heads[index].body.links.next->body.links.prev = blk;
         sf_free_list_heads[index].body.links.next = blk;
-        // printf("%ld\n", size);
         sf_block *next = (sf_block *)((char *)blk + size);
         next->prev_footer = (size + isPrevAlloc) ^ MAGIC;
-        // printf("%ld\n", (size + isPrevAlloc));
         size_t nextSize = (next->header ^ MAGIC) & 0x00000000FFFFFFF0;
         int nextAlloc = (next->header ^ MAGIC) & THIS_BLOCK_ALLOCATED;
         int nextInQck = (next->header ^ MAGIC) & IN_QUICK_LIST;
@@ -199,13 +187,81 @@ void sf_free(void *pp) {
         sf_block *nextNextBlock = (sf_block *)((char *)next + nextSize);
         nextNextBlock->prev_footer = (nextSize + nextAlloc + nextInQck) ^ MAGIC;
 
-        coalesce(0);
+        coalesce();
     }
 }
 
 void *sf_realloc(void *pp, sf_size_t rsize) {
-    // TO BE IMPLEMENTED
-    abort();
+    // check bad cases
+    void *newpp = (void *)((char *)pp - 16);
+    sf_block *blk = (sf_block *)newpp;
+    if(pp == NULL)
+        abort();
+    if((uintptr_t)pp % 16 != 0)
+        abort();
+
+    size_t size = (blk->header ^ MAGIC) & 0x00000000FFFFFFF0;
+    if(((blk->header ^ MAGIC) & 0x00000000FFFFFFF0) < 32)
+        abort();
+    if(((blk->header ^ MAGIC) & 0x00000000FFFFFFF0) % 16 != 0)
+        abort();
+    if((char *)pp + sizeof(sf_header) < (char *)sf_mem_start())
+        abort();
+    if((char *)pp > (char *)sf_mem_end())
+        abort();
+    if(((blk->header ^ MAGIC) & THIS_BLOCK_ALLOCATED) == 0)
+        abort();
+    if(((blk->header ^ MAGIC) & PREV_BLOCK_ALLOCATED) == 0){
+        if(((blk->prev_footer ^ MAGIC) & THIS_BLOCK_ALLOCATED) != 0){
+            abort();
+        }
+    }
+    if(rsize == 0){
+        sf_free(pp);
+        return NULL;
+    }
+
+    size_t sizeNeeded = rsize + sizeof(sf_header);
+    if(sizeNeeded < 32)
+        sizeNeeded = 32;
+    sizeNeeded = ((sizeNeeded - 1)|15)+1;
+
+    // larger block
+    if(rsize >= size){
+        sf_block *newBlk = (sf_block *)((char *)sf_malloc(rsize) -16);
+        if(newBlk == NULL)
+            return NULL;
+        int psize = ((blk->header ^ MAGIC) & 0xFFFFFFFF00000000) >> 32;
+        memcpy(blk->body.payload, newBlk->body.payload, psize);
+        sf_free(pp);
+        return newBlk->body.payload;
+    }
+    else{
+        // splinter
+        if((size - sizeNeeded) < 32){
+            size_t paySize = (uint64_t)rsize << 32;
+            blk->header = (((blk->header ^ MAGIC) & 0x00000000FFFFFFFF) + paySize) ^ MAGIC;
+            return blk->body.payload;
+        }
+        else{
+            size_t paySize = (uint64_t)rsize << 32;
+
+            blk->header = (paySize + sizeNeeded + ((blk->header ^ MAGIC) & 0xF)) ^ MAGIC;
+            sf_block *newFree = (sf_block *)((char *)blk + sizeNeeded);
+            newFree->header = ((size - sizeNeeded) + PREV_BLOCK_ALLOCATED) ^ MAGIC;
+            int index = get_correct_free_list(size - sizeNeeded);
+            newFree->body.links.next = sf_free_list_heads[index].body.links.next;
+            newFree->body.links.prev = &sf_free_list_heads[index];
+            sf_free_list_heads[index].body.links.next->body.links.prev = newFree;
+            sf_free_list_heads[index].body.links.next = newFree;
+
+            sf_block *afterFree = (sf_block *)((char *)newFree + (size - sizeNeeded));
+            afterFree->prev_footer = ((size - sizeNeeded) + PREV_BLOCK_ALLOCATED) ^ MAGIC;
+            coalesce();
+            return blk->body.payload;
+        }
+
+    }
 }
 
 double sf_internal_fragmentation() {
@@ -337,7 +393,7 @@ int extend_heap(){
     return 0;
 }
 
-int coalesce(int ext){
+int coalesce(){
     char *pos = sf_mem_start() + 32;
     while(pos != sf_mem_end()-16){
         sf_block *currBlk = (sf_block *)pos;

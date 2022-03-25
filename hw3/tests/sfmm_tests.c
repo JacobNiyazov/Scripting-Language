@@ -246,7 +246,7 @@ Test(sfmm_basecode_suite, realloc_smaller_block_free_block, .timeout = TEST_TIME
 	// to the freelist.  This block will go into the main freelist and be coalesced.
 	// Note that we don't put split blocks into the quick lists because their sizes are not sizes
 	// that were requested by the client, so they are not very likely to satisfy a new request.
-	assert_quick_list_block_count(0, 0);	
+	assert_quick_list_block_count(0, 0);
 	assert_free_block_count(0, 1);
 	assert_free_block_count(944, 1);
 }
@@ -256,5 +256,84 @@ Test(sfmm_basecode_suite, realloc_smaller_block_free_block, .timeout = TEST_TIME
 //DO NOT DELETE THESE COMMENTS
 //############################################
 
-//Test(sfmm_student_suite, student_test_1, .timeout = TEST_TIMEOUT) {
-//}
+Test(sfmm_student_suite, student_test_1, .timeout = TEST_TIMEOUT) {
+	sf_errno = 0;
+	size_t a = 30;
+	size_t b = 100;
+	int *ptr1 = sf_malloc(a);
+	int *ptr2 = sf_malloc(b);
+
+	cr_assert_not_null(ptr1, "ptr1 is NULL!");
+	cr_assert_not_null(ptr2, "ptr2 is NULL!");
+
+	*ptr1 = 30;
+	*ptr2 = 100;
+
+	cr_assert(*ptr1 == 30, "sf_malloc failed to give proper space for 30 bytes!");
+	cr_assert(*ptr2 == 100, "sf_malloc failed to give proper space for 100 bytes!");
+	sf_block *block1 = (sf_block *)((char *)ptr1 - 16);
+	sf_block *block2 = (sf_block *)((char *)ptr2 - 16);
+	cr_assert((block1->header >> 32) & 0xffffffff,
+		  "Malloc'ed block payload size (%ld) not what was expected (%ld)!",
+		  (block1->header >> 32) & 0xffffffff, a);
+
+	cr_assert((block2->header >> 32) & 0xffffffff,
+		  "Malloc'ed block payload size (%ld) not what was expected (%ld)!",
+		  (block2->header >> 32) & 0xffffffff, b);
+
+	assert_quick_list_block_count(0, 0);
+	assert_free_block_count(0, 1);
+	assert_free_block_count(816, 1);
+
+	cr_assert(sf_errno == 0, "sf_errno is not zero!");
+	cr_assert(sf_mem_start() + PAGE_SZ == sf_mem_end(), "Allocated more than necessary!");
+}
+
+Test(sfmm_student_suite, student_test_2, .timeout = TEST_TIMEOUT) {
+	size_t firstSize = sizeof(double) * 3;
+	size_t secondSize = sizeof(long);
+	size_t thirdSize = sizeof(long) * sizeof(double);
+	void *res = sf_malloc(firstSize);
+	sf_malloc(secondSize);
+	res = sf_realloc(res, thirdSize);
+
+	cr_assert_not_null(res, "res is NULL!");
+	sf_block *block1 = (sf_block *)((char *)res - 16);
+	cr_assert((block1->header ^ MAGIC) & THIS_BLOCK_ALLOCATED, "Allocated bit is not set!");
+	cr_assert(((block1->header ^ MAGIC) & 0xfffffff0) == 80,
+		  "Realloc'ed block size (%ld) not what was expected (%ld)!",
+		  (block1->header ^ MAGIC) & 0xfffffff0, 80);
+	cr_assert((((block1->header ^ MAGIC) >> 32) & 0xffffffff) == thirdSize,
+		  "Realloc'ed block payload size (%ld) not what was expected (%ld)!",
+		  (((block1->header ^ MAGIC) >> 32) & 0xffffffff), thirdSize);
+
+	assert_quick_list_block_count(0, 1);
+	assert_quick_list_block_count(32, 1);
+	assert_free_block_count(0, 1);
+	assert_free_block_count(832, 1);
+}
+
+Test(sfmm_student_suite, student_test_3, .timeout = TEST_TIMEOUT) {
+	sf_errno = 0;
+	size_t a = 333;
+	size_t b = 87;
+	size_t c = 260;
+	size_t d = 9;
+	size_t e = 126;
+	void *ptr1 = sf_malloc(b);
+	sf_malloc(c);
+	void *ptr2 = sf_malloc(e);
+	void *ptr3 = sf_malloc(a);
+	sf_malloc(d);
+
+	sf_free(ptr1);
+	sf_free(ptr2);
+	sf_free(ptr3);
+
+	assert_quick_list_block_count(96, 1);
+	assert_quick_list_block_count(144, 1);
+	assert_free_block_count(80, 1);
+	assert_free_block_count(352, 1);
+
+	cr_assert(sf_errno == 0, "sf_errno is not zero!");
+}
