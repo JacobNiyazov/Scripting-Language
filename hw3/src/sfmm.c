@@ -34,8 +34,10 @@ void *sf_malloc(sf_size_t size) {
         sf_block *temp = sf_quick_lists[i].first;
         int blksize = ((temp->header) ^ MAGIC) & 0x00000000FFFFFFF0;
         if(blksize == sizeNeeded){
-            temp->body.links.next = sf_quick_lists[i].first;
-            sf_quick_lists[i].first = temp;
+            temp->header = (((uint64_t)size << 32) + (temp->header ^ MAGIC) - IN_QUICK_LIST) ^ MAGIC;
+
+            sf_quick_lists[i].first = temp->body.links.next;
+            sf_quick_lists[i].length = sf_quick_lists[i].length -1;
             return temp->body.payload;
         }
     }
@@ -74,6 +76,7 @@ void *sf_malloc(sf_size_t size) {
 
                         //temp->body.links.next->prev_footer = (newBlkSize + isPrevAloc) ^ MAGIC;
                         temp->header = (((uint64_t)size << 32) + sizeNeeded + THIS_BLOCK_ALLOCATED + isPrevAloc) ^ MAGIC;
+
                         nextBlk->prev_footer = (newBlkSize + PREV_BLOCK_ALLOCATED) ^ MAGIC;
 
                         return temp->body.payload;
@@ -157,6 +160,7 @@ void sf_free(void *pp) {
                 sf_free_list_heads[index].body.links.next = curr;
             }
             coalesce();
+            sf_quick_lists[ql].length = 0;
         }
 
         // insert
@@ -165,6 +169,8 @@ void sf_free(void *pp) {
 
         blk->body.links.next = sf_quick_lists[ql].first;
         sf_quick_lists[ql].first = blk;
+
+        sf_quick_lists[ql].length = sf_quick_lists[ql].length + 1;
 
     }
     // free list
@@ -182,10 +188,13 @@ void sf_free(void *pp) {
         size_t nextSize = (next->header ^ MAGIC) & 0x00000000FFFFFFF0;
         int nextAlloc = (next->header ^ MAGIC) & THIS_BLOCK_ALLOCATED;
         int nextInQck = (next->header ^ MAGIC) & IN_QUICK_LIST;
-        next->header = (nextSize + nextAlloc + nextInQck) ^ MAGIC;
+        long psize = ((next->header ^ MAGIC) & 0xFFFFFFFF00000000);
+        next->header = (psize + nextSize + nextAlloc + nextInQck) ^ MAGIC;
 
-        sf_block *nextNextBlock = (sf_block *)((char *)next + nextSize);
-        nextNextBlock->prev_footer = (nextSize + nextAlloc + nextInQck) ^ MAGIC;
+        if(nextAlloc == 0){
+            sf_block *nextNextBlock = (sf_block *)((char *)next + nextSize);
+            nextNextBlock->prev_footer = (nextSize + nextAlloc + nextInQck) ^ MAGIC;
+        }
 
         coalesce();
     }
@@ -231,7 +240,7 @@ void *sf_realloc(void *pp, sf_size_t rsize) {
         sf_block *newBlk = (sf_block *)((char *)sf_malloc(rsize) -16);
         if(newBlk == NULL)
             return NULL;
-        int psize = ((blk->header ^ MAGIC) & 0xFFFFFFFF00000000) >> 32;
+        long psize = ((blk->header ^ MAGIC) & 0xFFFFFFFF00000000) >> 32;
         memcpy(blk->body.payload, newBlk->body.payload, psize);
         sf_free(pp);
         return newBlk->body.payload;
@@ -265,13 +274,43 @@ void *sf_realloc(void *pp, sf_size_t rsize) {
 }
 
 double sf_internal_fragmentation() {
-    // TO BE IMPLEMENTED
-    abort();
+    double payloadAMT = 0.0;
+    double blockAMT = 0.0;
+
+    sf_block *curr = (sf_block *)(sf_mem_start() + sizeof(sf_block));
+    while(curr != (sf_mem_end()-16)){
+        size_t currSize = (curr->header ^ MAGIC) & 0x00000000FFFFFFF0;
+        blockAMT += currSize;
+        long psize = ((curr->header ^ MAGIC) & 0xFFFFFFFF00000000) >> 32;
+        payloadAMT += psize;
+
+        curr = (sf_block *)((char *)curr + currSize);
+    }
+
+    if(blockAMT == 0.0)
+        return 0.0;
+    else
+        return (payloadAMT/blockAMT);
+
 }
 
 double sf_peak_utilization() {
-    // TO BE IMPLEMENTED
-    abort();
+    double payloadAMT = 0.0;
+
+    sf_block *curr = (sf_block *)(sf_mem_start() + sizeof(sf_block));
+    while(curr != (sf_mem_end()-16)){
+        size_t currSize = (curr->header ^ MAGIC) & 0x00000000FFFFFFF0;
+        long psize = ((curr->header ^ MAGIC) & 0xFFFFFFFF00000000) >> 32;
+        payloadAMT += psize;
+
+        curr = (sf_block *)((char *)curr + currSize);
+    }
+
+
+    if((sf_mem_end() - sf_mem_start()) == 0)
+        return 0.0;
+    else
+        return (payloadAMT/(sf_mem_end() - sf_mem_start()));
 }
 
 void init_heap(){

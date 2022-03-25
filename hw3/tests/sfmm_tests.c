@@ -337,3 +337,26 @@ Test(sfmm_student_suite, student_test_3, .timeout = TEST_TIMEOUT) {
 
 	cr_assert(sf_errno == 0, "sf_errno is not zero!");
 }
+
+Test(sfmm_student_suite, student_test_4, .timeout = TEST_TIMEOUT) {
+	void *ptr = sf_malloc(100);
+	sf_malloc(30);
+	sf_realloc(ptr, 200);
+
+	double result = sf_internal_fragmentation();
+
+	cr_assert(result == (230.0/976.0), "result is incorrect. Expected (%f), received (%f)", (230.0/976.0), result);
+}
+
+Test(sfmm_student_suite, student_test_5, .timeout = TEST_TIMEOUT) {
+	void *ptr = sf_malloc(1000);
+	void *ptr2 = sf_malloc(256);
+
+	sf_realloc(ptr2, 500);
+
+	sf_free(ptr);
+
+	double result = sf_peak_utilization();
+
+	cr_assert(result == (500.0/2048.0), "result is incorrect. Expected (%f), received (%f)", (500.0/2048.0), result);
+}
