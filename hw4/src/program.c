@@ -13,6 +13,19 @@
  * store can hold.
  */
 
+typedef struct node{
+    STMT *stmt;
+    struct node *nextNode;
+} node;
+
+typedef struct p_store{
+    int counter;
+    int storeLen;
+    node *head;
+} p_store;
+
+p_store prog_store = { .head = NULL, .storeLen = 0, .counter = 0 };
+
 /**
  * @brief  Output a listing of the current contents of the program store.
  * @details  This function outputs a listing of the current contents of the
@@ -25,8 +38,38 @@
  * @return  0 if successful, -1 if any error occurred.
  */
 int prog_list(FILE *out) {
-    // TO BE IMPLEMENTED
-    abort();
+    printf("counter = %d\n", prog_store.counter);
+    int is_pc_printed = 0;
+    node *temp = prog_store.head;
+    int pos = 0;
+    if(temp == NULL){
+        int res = fprintf(out, "-->\n");
+        is_pc_printed = 1;
+        if(res < 0){
+            return -1;
+        }
+    }
+    while(temp){
+        if(pos == prog_store.counter){
+            int res = fprintf(out, "-->\n");
+            is_pc_printed = 1;
+            if(res < 0){
+                return -1;
+            }
+        }
+        show_stmt(out, temp->stmt);
+        pos++;
+        temp = temp->nextNode;
+    }
+    if(!is_pc_printed){
+        int res = fprintf(out, "-->\n");
+        is_pc_printed = 1;
+        if(res < 0){
+            return -1;
+        }
+    }
+
+    return 0;
 }
 
 /**
@@ -47,8 +90,65 @@ int prog_list(FILE *out) {
  * @return  0 if successful, -1 if any error occurred.
  */
 int prog_insert(STMT *stmt) {
-    // TO BE IMPLEMENTED
-    abort();
+    int lineno = stmt->lineno;
+
+    //check existing lineNums
+    node *curr = prog_store.head;
+
+    while(curr != NULL){
+        //there already exists a stmt w the lineno - replace it
+        if(curr->stmt->lineno == lineno){
+            free_stmt(curr->stmt);
+            curr->stmt = stmt;
+
+            return 0;
+        }
+
+        curr = curr -> nextNode;
+    }
+
+    int pos = 0;
+    curr = prog_store.head;
+    //if insert at head
+    // int x = (lineno < prog_store.head->stmt->lineno) || (prog_store.storeLen == 0);
+    // printf("x = %d\n", x);
+    if((prog_store.storeLen == 0) || (lineno < prog_store.head->stmt->lineno)){
+        node *new = malloc(sizeof(node));
+        if(new == NULL){
+            free_stmt(stmt);
+            return -1;
+        }
+        new->stmt = stmt;
+        new->nextNode = curr;
+        prog_store.head = new;
+    }
+    else{
+        pos++;
+        while(curr->nextNode && curr->nextNode->stmt->lineno < lineno){
+            curr = curr->nextNode;
+            pos++;
+        }
+
+        node *new = malloc(sizeof(node));
+        if(new == NULL){
+            free_stmt(stmt);
+            return -1;
+        }
+        new->stmt = stmt;
+
+        new->nextNode = curr->nextNode;
+        curr->nextNode = new;
+    }
+
+
+    if(pos <= prog_store.counter){
+        prog_store.counter = (prog_store.counter) + 1;
+    }
+
+    prog_store.storeLen = prog_store.storeLen + 1;
+
+
+    return 0;
 }
 
 /**
@@ -69,8 +169,36 @@ int prog_insert(STMT *stmt) {
  * @param max  Upper end of the range of line numbers to be deleted.
  */
 int prog_delete(int min, int max) {
-    // TO BE IMPLEMENTED
-    abort();
+    node *temp = prog_store.head;
+    //handle head
+    while(temp && temp->stmt->lineno >= min && temp->stmt->lineno <= max){
+        prog_store.head = temp->nextNode;
+        free_stmt(temp->stmt);
+        free(temp);
+        prog_store.storeLen = prog_store.storeLen - 1;
+        prog_store.counter = prog_store.counter - 1;
+        temp = prog_store.head;
+    }
+    if(prog_store.counter < 0)
+        prog_store.counter = 0;
+    while(temp && temp->nextNode){
+        int lineno = temp->nextNode->stmt->lineno;
+        if(lineno >= min && lineno <= max){
+            node *n = temp->nextNode;
+            prog_store.storeLen = prog_store.storeLen - 1;
+            if(prog_store.counter > 1)
+                prog_store.counter = prog_store.counter - 1;
+            temp->nextNode = temp->nextNode->nextNode;
+            free_stmt(n->stmt);
+            free(n);
+        }
+        else
+            temp = temp->nextNode;
+    }
+    if(prog_store.storeLen == 1)
+        prog_store.counter = 0;
+
+    return 0;
 }
 
 /**
@@ -79,8 +207,7 @@ int prog_delete(int min, int max) {
  * before the first statement in the program.
  */
 void prog_reset(void) {
-    // TO BE IMPLEMENTED
-    abort();
+    prog_store.counter = 0;
 }
 
 /**
@@ -95,8 +222,16 @@ void prog_reset(void) {
  * counter position, if any, otherwise NULL.
  */
 STMT *prog_fetch(void) {
-    // TO BE IMPLEMENTED
-    abort();
+    int pos = 0;
+    node *temp = prog_store.head;
+    while(temp){
+        if(pos == prog_store.counter){
+            return temp->stmt;
+        }
+        temp = temp->nextNode;
+        pos++;
+    }
+    return NULL;
 }
 
 /**
@@ -111,8 +246,17 @@ STMT *prog_fetch(void) {
  * position, if any, otherwise NULL.
  */
 STMT *prog_next() {
-    // TO BE IMPLEMENTED
-    abort();
+    prog_store.counter = prog_store.counter + 1;
+    int pos = 0;
+    node *temp = prog_store.head;
+    while(temp){
+        if(pos == prog_store.counter){
+            return temp->stmt;
+        }
+        temp = temp->nextNode;
+        pos++;
+    }
+    return NULL;
 }
 
 /**
@@ -131,6 +275,16 @@ STMT *prog_next() {
  * statement exists, otherwise NULL.
  */
 STMT *prog_goto(int lineno) {
-    // TO BE IMPLEMENTED
-    abort();
+    int pos = 0;
+    node *temp = prog_store.head;
+    while(temp){
+        int lineNum = temp->stmt->lineno;
+        if(lineNum == lineno){
+            prog_store.counter = pos;
+            return temp->stmt;
+        }
+        temp = temp->nextNode;
+        pos++;
+    }
+    return NULL;
 }

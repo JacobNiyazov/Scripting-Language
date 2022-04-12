@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
 
 /*
  * This is the "data store" module for Mush.
@@ -13,6 +14,19 @@
  * a variable as an integer is possible if the current value of the
  * variable is the string representation of an integer.
  */
+
+typedef struct node{
+    char *key;
+    char *value;
+    struct node *nextNode;
+} node;
+
+typedef struct d_store{
+    int dStoreLen;
+    node *head;
+} d_store;
+
+d_store data_store = { .head = NULL, .dStoreLen = 0 };
 
 /**
  * @brief  Get the current value of a variable as a string.
@@ -29,8 +43,14 @@
  * otherwise NULL.
  */
 char *store_get_string(char *var) {
-    // TO BE IMPLEMENTED
-    abort();
+    node *temp = data_store.head;
+    while(temp){
+        if(strcmp(var, temp->key) == 0){
+            return temp->value;
+        }
+        temp = temp->nextNode;
+    }
+    return NULL;
 }
 
 /**
@@ -47,8 +67,30 @@ char *store_get_string(char *var) {
  * otherwise 0 is returned.
  */
 int store_get_int(char *var, long *valp) {
-    // TO BE IMPLEMENTED
-    abort();
+    node *temp = data_store.head;
+    while(temp){
+        if(strcmp(var, temp->key) == 0){
+            char **end = NULL;
+            long res = strtol(temp->value, end, 10);
+            if(res){
+                *valp = res;
+                return 0;
+            }
+            else{
+                if(errno != 0)
+                    return -1;
+                else if((temp->value) == *end)
+                    return -1;
+                else{
+                    *valp = res;
+                    return 0;
+                }
+
+            }
+        }
+        temp = temp->nextNode;
+    }
+    return -1;
 }
 
 /**
@@ -67,8 +109,83 @@ int store_get_int(char *var, long *valp) {
  * un-set.
  */
 int store_set_string(char *var, char *val) {
-    // TO BE IMPLEMENTED
-    abort();
+    node *temp = data_store.head;
+    int is_null_val = 0;
+    if(val == NULL){
+        is_null_val = 1;
+    }
+
+    while(temp){
+        if(strcmp(var, temp->key) == 0){
+            if(is_null_val){
+                node *temptwo = data_store.head;
+                while(temptwo->nextNode && temptwo->nextNode != temp){
+                    temptwo = temptwo->nextNode;
+                }
+                if(temp->value != NULL)
+                    free(temp->value);
+                free(temp->key);
+                temptwo->nextNode = temp->nextNode;
+                free(temp);
+                return 0;
+            }
+            else{ // val is not null
+                if(temp->value == NULL){
+                    temp->value = strdup(val);
+                    if(temp->value == NULL)
+                        return -1;
+                    return 0;
+                }
+                else{
+                    free(temp->value);
+                    temp->value = strdup(val);
+                    if(temp->value == NULL)
+                        return -1;
+                    return 0;
+                }
+            }
+        }
+        temp = temp->nextNode;
+    }
+    if(is_null_val)
+        return 0;
+    else{ //create node
+        temp = data_store.head;
+        while(temp->nextNode){
+            temp = temp->nextNode;
+        }
+        node *new = malloc(sizeof(node));
+        if(new == NULL)
+            return -1;
+        new->key = malloc(sizeof(var));
+        if(new->key == NULL){
+            free(new);
+            return -1;
+        }
+        new->value = malloc(sizeof(val));
+        if(new->value == NULL){
+            free(new);
+            free(new->key);
+            return -1;
+        }
+        char *res = strcpy(new->key, var);
+        if(res == NULL){
+            free(new);
+            free(new->key);
+            free(new->value);
+            return -1;
+        }
+        res = strcpy(new->value, val);
+        if(res == NULL){
+            free(new);
+            free(new->key);
+            free(new->value);
+            return -1;
+        }
+        new->nextNode = NULL;
+        temp->nextNode = new;
+        return 0;
+    }
 }
 
 /**
@@ -84,8 +201,59 @@ int store_set_string(char *var, char *val) {
  * @param  val  The value to set.
  */
 int store_set_int(char *var, long val) {
-    // TO BE IMPLEMENTED
-    abort();
+    node *temp = data_store.head;
+    while(temp){
+        if(strcmp(var, temp->key) == 0){
+            if(temp->value == NULL){
+                char buff[21];
+                sprintf(buff, "%ld", val);
+                temp->value = strdup(buff);
+                if(temp->key == NULL){
+                    return -1;
+                }
+
+                return 0;
+            }
+            else{
+                free(temp->value);
+                char buff[21];
+                sprintf(buff, "%ld", val);
+                temp->value = strdup(buff);
+                if(temp->key == NULL){
+                    return -1;
+                }
+
+                return 0;
+            }
+        }
+        temp = temp->nextNode;
+    }
+
+    //create node
+    temp = data_store.head;
+    while(temp->nextNode){
+        temp = temp->nextNode;
+    }
+    node *new = malloc(sizeof(node));
+    if(new == NULL)
+        return -1;
+    new->key = strdup(var);
+    if(new->key == NULL){
+        free(new);
+        return -1;
+    }
+
+    char buff[21];
+    sprintf(buff, "%ld", val);  // ld ???
+    new->value = strdup(buff);
+    if(new->key == NULL){
+        free(new);
+        free(new->key);
+        return -1;
+    }
+    new->nextNode = NULL;
+    temp->nextNode = new;
+    return 0;
 }
 
 /**
@@ -97,6 +265,10 @@ int store_set_int(char *var, long val) {
  * @param f  The stream to which the store contents are to be printed.
  */
 void store_show(FILE *f) {
-    // TO BE IMPLEMENTED
-    abort();
+    node *temp = data_store.head;
+    while(temp){
+        fprintf(f, "%s::%s\n", temp->key, temp->value);
+        temp = temp->nextNode;
+    }
 }
+
