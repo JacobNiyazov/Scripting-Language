@@ -24,7 +24,7 @@ typedef struct p_store{
     node *head;
 } p_store;
 
-p_store prog_store = { .head = NULL, .storeLen = 0, .counter = 0 };
+p_store prog_store = { .head = NULL, .storeLen = 0, .counter = -1 };
 
 /**
  * @brief  Output a listing of the current contents of the program store.
@@ -39,10 +39,11 @@ p_store prog_store = { .head = NULL, .storeLen = 0, .counter = 0 };
  */
 int prog_list(FILE *out) {
     printf("counter = %d\n", prog_store.counter);
+    printf("len = %d\n", prog_store.storeLen);
     int is_pc_printed = 0;
     node *temp = prog_store.head;
     int pos = 0;
-    if(temp == NULL){
+    if(temp == NULL || prog_store.counter == -1){
         int res = fprintf(out, "-->\n");
         is_pc_printed = 1;
         if(res < 0){
@@ -141,7 +142,7 @@ int prog_insert(STMT *stmt) {
     }
 
 
-    if(pos <= prog_store.counter){
+    if(pos <= prog_store.counter && prog_store.counter != -1){
         prog_store.counter = (prog_store.counter) + 1;
     }
 
@@ -169,6 +170,12 @@ int prog_insert(STMT *stmt) {
  * @param max  Upper end of the range of line numbers to be deleted.
  */
 int prog_delete(int min, int max) {
+    int counter_at_start;
+    if(prog_store.counter != -1)
+        counter_at_start = 0;
+    else
+        counter_at_start = 1;
+
     node *temp = prog_store.head;
     //handle head
     while(temp && temp->stmt->lineno >= min && temp->stmt->lineno <= max){
@@ -176,10 +183,11 @@ int prog_delete(int min, int max) {
         free_stmt(temp->stmt);
         free(temp);
         prog_store.storeLen = prog_store.storeLen - 1;
-        prog_store.counter = prog_store.counter - 1;
+        if(!counter_at_start)
+            prog_store.counter = prog_store.counter - 1;
         temp = prog_store.head;
     }
-    if(prog_store.counter < 0)
+    if(prog_store.counter < 0 && !counter_at_start)
         prog_store.counter = 0;
     while(temp && temp->nextNode){
         int lineno = temp->nextNode->stmt->lineno;

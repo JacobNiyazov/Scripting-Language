@@ -38,6 +38,24 @@
  * as required by the implementation of the various functions in this module.
  */
 
+typedef enum {
+    NEW,
+    RUNNING,
+    COMPLETED,
+    ABORTED,
+    CANCELED
+} STATUS;
+
+typedef struct job{
+    int jobid;
+    int pgid;
+    STATUS status;
+    PIPELINE *pipeline;
+} job;
+
+
+job job_table[MAX_JOBS];
+
 /**
  * @brief  Initialize the jobs module.
  * @details  This function is used to initialize the jobs module.
@@ -47,8 +65,16 @@
  * @return 0 if initialization is successful, otherwise -1.
  */
 int jobs_init(void) {
-    // TO BE IMPLEMENTED
-    abort();
+    for(int i = 0; i < MAX_JOBS; i++){
+        job_table[i].jobid = -1;
+        job_table[i].pgid = 0;
+        job_table[i].status = 0;
+        job_table[i].pipeline->commands = NULL;
+        job_table[i].pipeline->input_file = NULL;
+        job_table[i].pipeline->output_file = NULL;
+        job_table[i].pipeline->capture_output = 0;
+    }
+    return 0;
 }
 
 /**
@@ -83,8 +109,16 @@ int jobs_fini(void) {
  * @return 0  If the jobs table was successfully printed, -1 otherwise.
  */
 int jobs_show(FILE *file) {
-    // TO BE IMPLEMENTED
-    abort();
+    char *stats[] = {"new", "running", "completed", "aborted", "canceled"};
+    for(int i = 0; i < MAX_JOBS; i++){
+        if(job_table[i].jobid >= 0){
+            if(fprintf(file, "%d\t%d\t%s\t", job_table[i].jobid, job_table[i].pgid, stats[job_table[i].status]) < 0)
+                return -1;
+            show_pipeline(file, job_table[i].pipeline);
+            fprintf(file, "\n");
+        }
+    }
+    return 0;
 }
 
 /**
@@ -121,8 +155,69 @@ int jobs_show(FILE *file) {
  * value returned is the job ID assigned to the pipeline.
  */
 int jobs_run(PIPELINE *pline) {
-    // TO BE IMPLEMENTED
-    abort();
+    int pid = fork();
+    if(pid == -1)
+        return -1;
+    //child/leader
+    if(pid == 0){
+        //set job
+        int is_job_set = 0;
+        int jobid = 0;
+        for(int i = 0; i < MAX_JOBS; i++){
+            if(job_table[i].jobid == -1){
+                jobid = i;
+                job_table[i].jobid = i;
+                job_table[i].pgid = getpid();
+                job_table[i].status = NEW;
+                job_table[i].pipeline = pline;
+                is_job_set = 1;
+            }
+        }
+        if(!is_job_set)
+            return -1;
+
+        //set process group id
+        int setresp = setpgid(getpid(), getpid());
+        if(setresp < 0)
+            return -1;
+
+        //iterate through commands
+        COMMAND *temp_command = pline->commands;
+        while(temp_command){
+            int cpid = fork();
+
+            //error
+            if(cpid == -1)
+                return -1;
+
+            //child of leader
+            if(cpid == 0){
+                int setresp = setpgid(getpid(), job_table[jobid].pgid);
+                if(setresp < 0)
+                    return -1;
+
+                // int resp = execvp();
+                // if(resp == -1)
+                //     return -1;
+            }
+            temp_command = temp_command->next;
+        }
+
+        //change status
+        job_table[jobid].status = RUNNING;
+
+        // leader waiting for all children
+        COMMAND *temp_command_two = pline->commands;
+        while(temp_command_two){
+            wait(NULL);
+            temp_command_two = temp_command_two->next;
+        }
+        return 0;
+    }
+    else{ //caller wait for leader
+        wait(NULL);
+    }
+    return 0;
 }
 
 /**

@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include "debug.h"
+
 
 /*
  * This is the "data store" module for Mush.
@@ -114,20 +116,30 @@ int store_set_string(char *var, char *val) {
     if(val == NULL){
         is_null_val = 1;
     }
-
     while(temp){
         if(strcmp(var, temp->key) == 0){
             if(is_null_val){
-                node *temptwo = data_store.head;
-                while(temptwo->nextNode && temptwo->nextNode != temp){
-                    temptwo = temptwo->nextNode;
+                if(temp == data_store.head){
+                    if(temp->value != NULL)
+                        free(temp->value);
+                    free(temp->key);
+                    data_store.head = temp->nextNode;
+                    free(temp);
+                    return 0;
+
                 }
-                if(temp->value != NULL)
-                    free(temp->value);
-                free(temp->key);
-                temptwo->nextNode = temp->nextNode;
-                free(temp);
-                return 0;
+                else{
+                    node *temptwo = data_store.head;
+                    while(temptwo->nextNode && temptwo->nextNode != temp){
+                        temptwo = temptwo->nextNode;
+                    }
+                    if(temp->value != NULL)
+                        free(temp->value);
+                    free(temp->key);
+                    temptwo->nextNode = temp->nextNode;
+                    free(temp);
+                    return 0;
+                }
             }
             else{ // val is not null
                 if(temp->value == NULL){
@@ -151,7 +163,7 @@ int store_set_string(char *var, char *val) {
         return 0;
     else{ //create node
         temp = data_store.head;
-        while(temp->nextNode){
+        while(temp && temp->nextNode){
             temp = temp->nextNode;
         }
         node *new = malloc(sizeof(node));
@@ -183,7 +195,10 @@ int store_set_string(char *var, char *val) {
             return -1;
         }
         new->nextNode = NULL;
-        temp->nextNode = new;
+        if(temp)
+            temp->nextNode = new;
+        else
+            data_store.head = new;
         return 0;
     }
 }
