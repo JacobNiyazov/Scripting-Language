@@ -12,6 +12,8 @@
 #include "mush.h"
 #include "debug.h"
 
+void child_handler(int sig);
+
 /*
  * This is the "jobs" module for Mush.
  * It maintains a table of jobs in various stages of execution, and it
@@ -54,6 +56,7 @@ typedef struct job{
 } job;
 
 
+// job *job_table;
 job job_table[MAX_JOBS];
 
 /**
@@ -65,14 +68,17 @@ job job_table[MAX_JOBS];
  * @return 0 if initialization is successful, otherwise -1.
  */
 int jobs_init(void) {
+    signal(SIGCHLD, child_handler);
+
+    // job_table = calloc(MAX_JOBS, sizeof(job));
     for(int i = 0; i < MAX_JOBS; i++){
         job_table[i].jobid = -1;
-        job_table[i].pgid = 0;
-        job_table[i].status = 0;
-        job_table[i].pipeline->commands = NULL;
-        job_table[i].pipeline->input_file = NULL;
-        job_table[i].pipeline->output_file = NULL;
-        job_table[i].pipeline->capture_output = 0;
+        // job_table[i].pgid = 0;
+        // job_table[i].status = 0;
+        // job_table[i].pipeline->commands = NULL;
+        // job_table[i].pipeline->input_file = NULL;
+        // job_table[i].pipeline->output_file = NULL;
+        // job_table[i].pipeline->capture_output = 0;
     }
     return 0;
 }
@@ -109,13 +115,16 @@ int jobs_fini(void) {
  * @return 0  If the jobs table was successfully printed, -1 otherwise.
  */
 int jobs_show(FILE *file) {
+    if(job_table == NULL)
+        return -1;
     char *stats[] = {"new", "running", "completed", "aborted", "canceled"};
     for(int i = 0; i < MAX_JOBS; i++){
         if(job_table[i].jobid >= 0){
             if(fprintf(file, "%d\t%d\t%s\t", job_table[i].jobid, job_table[i].pgid, stats[job_table[i].status]) < 0)
                 return -1;
             show_pipeline(file, job_table[i].pipeline);
-            fprintf(file, "\n");
+            if(fprintf(file, "\n") < 0)
+                return -1;
         }
     }
     return 0;
@@ -154,70 +163,209 @@ int jobs_show(FILE *file) {
  * @return  -1 if the pipeline could not be initialized properly, otherwise the
  * value returned is the job ID assigned to the pipeline.
  */
+
 int jobs_run(PIPELINE *pline) {
+    //set job
+    PIPELINE *temp_pline = copy_pipeline(pline);
+    int is_job_set = 0;
+    int jobid = 0;
+    for(int i = 0; i < MAX_JOBS; i++){
+        if(job_table[i].jobid == -1){
+            jobid = i;
+            // job *tjob = malloc(sizeof(job));
+            // job_table[i] = *tjob;
+            job_table[i].jobid = i;
+            job_table[i].pgid = getpid();
+            job_table[i].status = NEW;
+            job_table[i].pipeline = temp_pline;
+            is_job_set = 1;
+            break;
+        }
+    }
+    if(!is_job_set)
+        return -1;
+
     int pid = fork();
     if(pid == -1)
         return -1;
     //child/leader
     if(pid == 0){
-        //set job
-        int is_job_set = 0;
-        int jobid = 0;
-        for(int i = 0; i < MAX_JOBS; i++){
-            if(job_table[i].jobid == -1){
-                jobid = i;
-                job_table[i].jobid = i;
-                job_table[i].pgid = getpid();
-                job_table[i].status = NEW;
-                job_table[i].pipeline = pline;
-                is_job_set = 1;
-            }
-        }
-        if(!is_job_set)
-            return -1;
 
+
+        job_table[jobid].pgid = getpid();
         //set process group id
         int setresp = setpgid(getpid(), getpid());
         if(setresp < 0)
             return -1;
 
+        //get num commands
+        int numCommands = 0;
+        COMMAND *temp_command = temp_pline->commands;
+        while(temp_command){
+            numCommands++;
+            temp_command = temp_command->next;
+        }
+        //file descriptors
+        int fd[numCommands-1][2];
+
+        for(int j = 0; j < numCommands-1; j++){
+            if(pipe(fd[j]) < 0)
+                return -1;
+        }
         //iterate through commands
-        COMMAND *temp_command = pline->commands;
+        int fdCounter = 0;
+        temp_command = temp_pline->commands;
         while(temp_command){
             int cpid = fork();
-
             //error
             if(cpid == -1)
-                return -1;
+                abort();
 
             //child of leader
             if(cpid == 0){
+                char *of = NULL;
+                char *iff = NULL;
+                if(temp_pline->output_file){
+                    of = temp_pline->output_file;
+                }
+                if(temp_pline->input_file){
+                    iff = temp_pline->input_file;
+                }
+
+                // first child
+                if(fdCounter == 0){
+                    if(iff){
+                        int input_fd = open(iff, O_RDONLY);
+                        if(input_fd == -1)
+                            return -1;
+                        dup2(input_fd, 0);
+                        dup2(fd[fdCounter][1], 1);
+                        for(int i = 0; i < numCommands-1; i++){
+                            for(int j = 0; j < 2; j++){
+                                close(fd[i][j]);
+                            }
+                        }
+                    }
+                    else{
+                        dup2(fd[fdCounter][1], 1);
+                        for(int i = 0; i < numCommands-1; i++){
+                            for(int j = 0; j < 2; j++){
+                                close(fd[i][j]);
+                            }
+                        }
+
+                    }
+                }
+                else if(fdCounter == numCommands-1){//last child
+                    if(of){
+                        int output_fd = open(of, O_WRONLY | O_CREAT, S_IRWXU);
+                        if(output_fd == -1)
+                            return -1;
+                        dup2(output_fd, 1);
+                        dup2(fd[fdCounter-1][0], 0);
+                        for(int i = 0; i < numCommands-1; i++){
+                            for(int j = 0; j < 2; j++){
+                                close(fd[i][j]);
+                            }
+                        }
+
+                    }
+                    else{
+                        dup2(fd[fdCounter-1][0], 0);
+                        for(int i = 0; i < numCommands-1; i++){
+                            for(int j = 0; j < 2; j++){
+                                close(fd[i][j]);
+                            }
+                        }
+
+                    }
+                }
+                else{
+                    dup2(fd[fdCounter][1], 1);
+                    dup2(fd[fdCounter-1][0], 0);
+                    for(int i = 0; i < numCommands-1; i++){
+                        for(int j = 0; j < 2; j++){
+                            close(fd[i][j]);
+                        }
+                    }
+                }
+
                 int setresp = setpgid(getpid(), job_table[jobid].pgid);
                 if(setresp < 0)
                     return -1;
 
-                // int resp = execvp();
-                // if(resp == -1)
-                //     return -1;
+                // get len of argv
+                int len_argv = 0;
+                ARG *temp_arg = temp_command->args;
+                while(temp_arg){
+                    len_argv++;
+                    temp_arg = temp_arg->next;
+                }
+
+                char *argv[len_argv + 1];
+                temp_arg = temp_command->args;
+                int i = 0;
+                while(temp_arg){
+                    argv[i] = eval_to_string(temp_arg->expr);
+                    i++;
+                    temp_arg = temp_arg->next;
+                }
+                argv[len_argv] = '\0';
+                // printf("hiiih\n");
+                int resp = execvp(argv[0], argv);
+                if(resp == -1)
+                    return -1;
             }
             temp_command = temp_command->next;
+            fdCounter++;
+        }
+        for(int i = 0; i < numCommands-1; i++){
+            for(int j = 0; j < 2; j++){
+                close(fd[i][j]);
+            }
         }
 
         //change status
         job_table[jobid].status = RUNNING;
 
-        // leader waiting for all children
-        COMMAND *temp_command_two = pline->commands;
+
+        COMMAND *temp_command_two = temp_pline->commands;
         while(temp_command_two){
             wait(NULL);
             temp_command_two = temp_command_two->next;
         }
+        job_table[jobid].status = COMPLETED;
         return 0;
     }
     else{ //caller wait for leader
+        job_table[jobid].pgid = pid;
+        job_table[jobid].status = COMPLETED;
         wait(NULL);
     }
     return 0;
+}
+
+
+void child_handler(int sig){
+    pid_t pid;
+    int *status = NULL;
+    while((pid = waitpid(-1, status, WNOHANG)) > 0){
+        sigset_t mask;
+        sigfillset(&mask);
+        sigprocmask(SIG_SETMASK, &mask, NULL);
+
+        for(int i = 0; i < MAX_JOBS; i++){
+            if(job_table[i].pgid == pid){
+                job_table[i].status = COMPLETED;
+                break;
+            }
+        }
+
+        sigemptyset(&mask);
+        sigprocmask(SIG_SETMASK, &mask, NULL);
+
+    }
+
 }
 
 /**
@@ -231,8 +379,9 @@ int jobs_run(PIPELINE *pline) {
  * or -1 if any error occurs that makes it impossible to wait for the specified job.
  */
 int jobs_wait(int jobid) {
-    // TO BE IMPLEMENTED
-    abort();
+    // wait(NULL);
+    return 0;
+    
 }
 
 /**
@@ -263,8 +412,15 @@ int jobs_poll(int jobid) {
  * @return  0 if the job was successfully expunged, -1 if the job could not be expunged.
  */
 int jobs_expunge(int jobid) {
-    // TO BE IMPLEMENTED
-    abort();
+    if(job_table[jobid].status >= 2){
+        free_pipeline(job_table[jobid].pipeline);
+        // job *tjob = &(job_table[jobid]);
+        // free(tjob);
+        job_table[jobid].jobid = -1;
+        job_table[jobid].status = NEW;
+        return 0;
+    }
+    return -1;
 }
 
 /**

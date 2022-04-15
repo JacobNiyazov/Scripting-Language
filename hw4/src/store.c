@@ -246,7 +246,7 @@ int store_set_int(char *var, long val) {
 
     //create node
     temp = data_store.head;
-    while(temp->nextNode){
+    while(temp && temp->nextNode){
         temp = temp->nextNode;
     }
     node *new = malloc(sizeof(node));
@@ -259,15 +259,18 @@ int store_set_int(char *var, long val) {
     }
 
     char buff[21];
-    sprintf(buff, "%ld", val);  // ld ???
+    sprintf(buff, "%ld", val);
     new->value = strdup(buff);
-    if(new->key == NULL){
+    if(new->value == NULL){
         free(new);
         free(new->key);
         return -1;
     }
     new->nextNode = NULL;
-    temp->nextNode = new;
+    if(temp)
+        temp->nextNode = new;
+    else
+        data_store.head = new;
     return 0;
 }
 
@@ -282,7 +285,7 @@ int store_set_int(char *var, long val) {
 void store_show(FILE *f) {
     node *temp = data_store.head;
     while(temp){
-        fprintf(f, "%s::%s\n", temp->key, temp->value);
+        fprintf(f, "%s=%s\n", temp->key, temp->value);
         temp = temp->nextNode;
     }
 }

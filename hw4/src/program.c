@@ -38,8 +38,8 @@ p_store prog_store = { .head = NULL, .storeLen = 0, .counter = -1 };
  * @return  0 if successful, -1 if any error occurred.
  */
 int prog_list(FILE *out) {
-    printf("counter = %d\n", prog_store.counter);
-    printf("len = %d\n", prog_store.storeLen);
+    // printf("counter = %d\n", prog_store.counter);
+    // printf("len = %d\n", prog_store.storeLen);
     int is_pc_printed = 0;
     node *temp = prog_store.head;
     int pos = 0;
