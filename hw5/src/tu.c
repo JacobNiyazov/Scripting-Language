@@ -6,6 +6,14 @@
 #include "pbx.h"
 #include "debug.h"
 
+typedef struct tu {
+    int fd;
+    int extension;
+    int refCount;
+    struct tu *peer;
+    TU_STATE current_state;
+} TU;
+
 /*
  * Initialize a TU
  *
@@ -13,12 +21,17 @@
  * @return  The TU, newly initialized and in the TU_ON_HOOK state, if initialization
  * was successful, otherwise NULL.
  */
-#if 0
+// #if 0
 TU *tu_init(int fd) {
-    // TO BE IMPLEMENTED
-    abort();
+    TU *out = calloc(1, sizeof(TU)); //*TU or TU
+    if(out == NULL)
+        exit(1);
+    out->fd = fd;
+    out->extension = fd;
+    out->current_state = TU_ON_HOOK;
+    return out;
 }
-#endif
+// #endif
 
 /*
  * Increment the reference count on a TU.
@@ -27,12 +40,11 @@ TU *tu_init(int fd) {
  * @param reason  A string describing the reason why the count is being incremented
  * (for debugging purposes).
  */
-#if 0
+// #if 0
 void tu_ref(TU *tu, char *reason) {
-    // TO BE IMPLEMENTED
-    abort();
+    tu->refCount = tu->refCount + 1;
 }
-#endif
+// #endif
 
 /*
  * Decrement the reference count on a TU, freeing it if the count becomes 0.
@@ -41,12 +53,11 @@ void tu_ref(TU *tu, char *reason) {
  * @param reason  A string describing the reason why the count is being decremented
  * (for debugging purposes).
  */
-#if 0
+// #if 0
 void tu_unref(TU *tu, char *reason) {
-    // TO BE IMPLEMENTED
-    abort();
+    tu->refCount = tu->refCount - 1;
 }
-#endif
+// #endif
 
 /*
  * Get the file descriptor for the network connection underlying a TU.
@@ -57,12 +68,14 @@ void tu_unref(TU *tu, char *reason) {
  * @param tu
  * @return the underlying file descriptor, if any, otherwise -1.
  */
-#if 0
+// #if 0
 int tu_fileno(TU *tu) {
-    // TO BE IMPLEMENTED
-    abort();
+    if(tu->fd)
+        return tu->fd;
+    else
+        return -1;
 }
-#endif
+// #endif
 
 /*
  * Get the extension number for a TU.
@@ -74,12 +87,14 @@ int tu_fileno(TU *tu) {
  * @param tu
  * @return the extension number, if any, otherwise -1.
  */
-#if 0
+// #if 0
 int tu_extension(TU *tu) {
-    // TO BE IMPLEMENTED
-    abort();
+    if(tu->extension)
+        return tu->extension;
+    else
+        return -1;
 }
-#endif
+// #endif
 
 /*
  * Set the extension number for a TU.
@@ -88,12 +103,17 @@ int tu_extension(TU *tu) {
  *
  * @param tu  The TU whose extension is being set.
  */
-#if 0
+// #if 0
 int tu_set_extension(TU *tu, int ext) {
-    // TO BE IMPLEMENTED
-    abort();
+    tu->extension = ext;
+    char str[12];
+    if(sprintf(str, "ON HOOK %d\r\n", ext) == -1)
+        return -1;
+    if(write(ext, str, sizeof(str)) == -1)
+        return -1;
+    return 0;
 }
-#endif
+// #endif
 
 /*
  * Initiate a call from a specified originating TU to a specified target TU.
@@ -125,12 +145,64 @@ int tu_set_extension(TU *tu, int ext) {
  * @return 0 if successful, -1 if any error occurs that results in the originating
  * TU transitioning to the TU_ERROR state. 
  */
-#if 0
+// #if 0
 int tu_dial(TU *tu, TU *target) {
-    // TO BE IMPLEMENTED
-    abort();
+    if(target == NULL){
+        if(tu->current_state == TU_DIAL_TONE){
+            tu->current_state = TU_ERROR;
+            char str[8];
+            if(sprintf(str, "ERROR\r\n") == -1)
+                return -1;
+            if(write(tu->fd, str, sizeof(str)) == -1)
+                return -1;
+        }
+        return 0;
+
+    }
+    if(tu->current_state != TU_DIAL_TONE)
+        return 0;
+    if(tu == target){
+        tu->current_state = TU_BUSY_SIGNAL;
+        char str[14];
+        if(sprintf(str, "BUSY SIGNAL\r\n") == -1)
+            return -1;
+        if(write(tu->fd, str, sizeof(str)) == -1)
+            return -1;
+        return 0;
+    }
+    if((target->peer != NULL) || (target->current_state != TU_ON_HOOK)){
+        tu->current_state = TU_BUSY_SIGNAL;
+        char str[14];
+        if(sprintf(str, "BUSY SIGNAL\r\n") == -1)
+            return -1;
+        if(write(tu->fd, str, sizeof(str)) == -1)
+            return -1;
+        return 0;
+    }
+
+    tu->peer = target;
+    target->peer = tu;
+
+    tu->refCount = tu->refCount + 1;
+    target->refCount = target->refCount + 1;
+
+    target->current_state = TU_RINGING;
+    char str[10];
+    if(sprintf(str, "RINGING\r\n") == -1)
+        return -1;
+    if(write(target->fd, str, sizeof(str)) == -1)
+        return -1;
+
+    tu->current_state = TU_RING_BACK;
+    char strt[12];
+    if(sprintf(strt, "RING BACK\r\n") == -1)
+        return -1;
+    if(write(tu->fd, strt, sizeof(strt)) == -1)
+        return -1;
+
+    return 0;
 }
-#endif
+// #endif
 
 /*
  * Take a TU receiver off-hook (i.e. pick up the handset).
@@ -149,12 +221,39 @@ int tu_dial(TU *tu, TU *target) {
  * @return 0 if successful, -1 if any error occurs that results in the originating
  * TU transitioning to the TU_ERROR state. 
  */
-#if 0
+// #if 0
 int tu_pickup(TU *tu) {
-    // TO BE IMPLEMENTED
-    abort();
+    if(tu->current_state != TU_ON_HOOK && tu->current_state != TU_RINGING){
+        return 0;
+    }
+    if(tu->current_state == TU_ON_HOOK){
+        tu->current_state = TU_DIAL_TONE;
+        char str[12];
+        if(sprintf(str, "DIAL TONE\r\n") == -1)
+            return -1;
+        if(write(tu->fd, str, sizeof(str)) == -1)
+            return -1;
+        return 0;
+    }
+    else if(tu->current_state == TU_RINGING){
+        tu->current_state = TU_CONNECTED;
+        char str[14];
+        if(sprintf(str, "CONNECTED %d\r\n", tu->peer->extension) == -1)
+            return -1;
+        if(write(tu->fd, str, sizeof(str)) == -1)
+            return -1;
+
+        tu->peer->current_state = TU_CONNECTED;
+        char strt[14];
+        if(sprintf(strt, "CONNECTED %d\r\n", tu->extension) == -1)
+            return -1;
+        if(write(tu->peer->fd, strt, sizeof(strt)) == -1)
+            return -1;
+        return 0;
+    }
+    return 0;
 }
-#endif
+// #endif
 
 /*
  * Hang up a TU (i.e. replace the handset on the switchhook).
@@ -177,12 +276,54 @@ int tu_pickup(TU *tu) {
  * @return 0 if successful, -1 if any error occurs that results in the originating
  * TU transitioning to the TU_ERROR state. 
  */
-#if 0
+// #if 0
 int tu_hangup(TU *tu) {
-    // TO BE IMPLEMENTED
-    abort();
+    if(tu->current_state == TU_CONNECTED || tu->current_state == TU_RINGING){
+        tu->current_state = TU_ON_HOOK;
+        char str[12];
+        if(sprintf(str, "ON HOOK\r\n") == -1)
+            return -1;
+        if(write(tu->fd, str, sizeof(str)) == -1)
+            return -1;
+
+        tu->peer->current_state = TU_DIAL_TONE;
+        char strt[12];
+        if(sprintf(strt, "DIAL TONE\r\n") == -1)
+            return -1;
+        if(write(tu->peer->fd, strt, sizeof(strt)) == -1)
+            return -1;
+
+        return 0;
+    }
+    if(tu->current_state == TU_RING_BACK){
+        tu->current_state = TU_ON_HOOK;
+        char str[12];
+        if(sprintf(str, "ON HOOK\r\n") == -1)
+            return -1;
+        if(write(tu->fd, str, sizeof(str)) == -1)
+            return -1;
+
+        tu->peer->current_state = TU_ON_HOOK;
+        char strt[12];
+        if(sprintf(strt, "ON HOOK\r\n") == -1)
+            return -1;
+        if(write(tu->peer->fd, strt, sizeof(strt)) == -1)
+            return -1;
+
+        return 0;
+    }
+    if(tu->current_state == TU_DIAL_TONE || tu->current_state == TU_BUSY_SIGNAL || tu->current_state == TU_ERROR){
+        tu->current_state = TU_ON_HOOK;
+        char str[12];
+        if(sprintf(str, "ON HOOK\r\n") == -1)
+            return -1;
+        if(write(tu->fd, str, sizeof(str)) == -1)
+            return -1;
+        return 0;
+    }
+    return 0;
 }
-#endif
+// #endif
 
 /*
  * "Chat" over a connection.
@@ -197,9 +338,21 @@ int tu_hangup(TU *tu) {
  * @return 0  If the chat was successfully sent, -1 if there is no call in progress
  * or some other error occurs.
  */
-#if 0
+// #if 0
 int tu_chat(TU *tu, char *msg) {
-    // TO BE IMPLEMENTED
-    abort();
+    if(tu->current_state != TU_CONNECTED){
+        return -1;
+    }
+
+    if(write(tu->peer->fd, msg, sizeof(msg)) == -1)
+        return -1;
+
+    char str[14];
+    if(sprintf(str, "CONNECTED %d\r\n", tu->peer->extension) == -1)
+        return -1;
+    if(write(tu->fd, str, sizeof(str)) == -1)
+        return -1;
+
+    return 0;
 }
-#endif
+// #endif
