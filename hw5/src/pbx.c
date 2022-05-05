@@ -3,6 +3,7 @@
  */
 #include <stdlib.h>
 #include <errno.h>
+#include <semaphore.h>
 #include <sys/socket.h>
 
 #include "pbx.h"
@@ -13,6 +14,8 @@ typedef struct pbx{
     TU *tu_array[FD_SETSIZE];
 }PBX;
 
+sem_t pbx_sem;
+
 /*
  * Initialize a new PBX.
  *
@@ -22,7 +25,8 @@ typedef struct pbx{
 PBX *pbx_init() {
     PBX *p = calloc(FD_SETSIZE, sizeof(TU*));
     if(p == NULL)
-        exit(1);
+        return NULL;
+    sem_init(&pbx_sem, 0, 1);
     return p;
 }
 // #endif
@@ -39,6 +43,8 @@ PBX *pbx_init() {
  */
 // #if 0
 void pbx_shutdown(PBX *pbx) {
+    sem_wait(&pbx_sem);
+    // debug("pbx_shutdown\n");
     for(int i = 0; i < FD_SETSIZE; i++){
         if(pbx->tu_array[i] != NULL){
             int res = shutdown(tu_fileno(pbx->tu_array[i]), SHUT_RDWR);
@@ -53,6 +59,8 @@ void pbx_shutdown(PBX *pbx) {
             pbx->tu_array[i] = NULL;
         }
     }
+    sem_post(&pbx_sem);
+    sem_destroy(&pbx_sem);
     free(pbx);
 }
 // #endif
@@ -73,6 +81,7 @@ void pbx_shutdown(PBX *pbx) {
  */
 // #if 0
 int pbx_register(PBX *pbx, TU *tu, int ext) {
+    sem_wait(&pbx_sem);
     int set = 0;
     for(int i = 0; i < FD_SETSIZE; i++){
         if(pbx->tu_array[i] == NULL){
@@ -81,9 +90,12 @@ int pbx_register(PBX *pbx, TU *tu, int ext) {
             break;
         }
     }
+    sem_post(&pbx_sem);
     if(!set)
         return -1;
-    tu_set_extension(tu, ext);
+    int se = tu_set_extension(tu, ext);
+    if(se == -1)
+        return -1;
     tu_ref(tu, "pbx_register");
 
     return 0;
@@ -104,14 +116,22 @@ int pbx_register(PBX *pbx, TU *tu, int ext) {
  */
 // #if 0
 int pbx_unregister(PBX *pbx, TU *tu) {
-    tu_hangup(tu);
-    tu_unref(tu, "pbx_unregister");
+    int th = tu_hangup(tu);
+    if(th == -1)
+        return -1;
+    
+    sem_wait(&pbx_sem);
     for(int i = 0; i < FD_SETSIZE; i++){
         if(pbx->tu_array[i] == tu){
             pbx->tu_array[i] = NULL;
+            // debug("middle\n");
             break;
         }
     }
+    sem_post(&pbx_sem);
+    // debug("almost\n");
+    tu_unref(tu, "pbx_unregister");
+    // debug("done\n");
     return 0;
 }
 // #endif
@@ -133,8 +153,11 @@ int pbx_dial(PBX *pbx, TU *tu, int ext) {
             break;
         }
     }
-    if(other)
-        tu_dial(tu, other);
+    if(other){
+        int td = tu_dial(tu, other);
+        if(td == -1)
+            return -1;
+    }
     else
         return -1;
     return 0;

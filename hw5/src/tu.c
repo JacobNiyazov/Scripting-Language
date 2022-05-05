@@ -2,9 +2,12 @@
  * TU: simulates a "telephone unit", which interfaces a client with the PBX.
  */
 #include <stdlib.h>
+#include <semaphore.h>
 
 #include "pbx.h"
 #include "debug.h"
+
+int getNumDigits(int x);
 
 typedef struct tu {
     int fd;
@@ -13,6 +16,8 @@ typedef struct tu {
     struct tu *peer;
     TU_STATE current_state;
 } TU;
+
+sem_t tu_sem;
 
 /*
  * Initialize a TU
@@ -25,10 +30,12 @@ typedef struct tu {
 TU *tu_init(int fd) {
     TU *out = calloc(1, sizeof(TU)); //*TU or TU
     if(out == NULL)
-        exit(1);
+        return NULL;
     out->fd = fd;
+    out->refCount = 0;
     out->extension = fd;
     out->current_state = TU_ON_HOOK;
+    sem_init(&tu_sem, 0, 1);
     return out;
 }
 // #endif
@@ -42,7 +49,9 @@ TU *tu_init(int fd) {
  */
 // #if 0
 void tu_ref(TU *tu, char *reason) {
+    sem_wait(&tu_sem);
     tu->refCount = tu->refCount + 1;
+    sem_post(&tu_sem);
 }
 // #endif
 
@@ -55,7 +64,13 @@ void tu_ref(TU *tu, char *reason) {
  */
 // #if 0
 void tu_unref(TU *tu, char *reason) {
+    sem_wait(&tu_sem);
     tu->refCount = tu->refCount - 1;
+    // debug("deref = %d\n", tu->refCount);
+    if(tu->refCount == 0){
+        free(tu);
+    }
+    sem_post(&tu_sem);
 }
 // #endif
 
@@ -70,7 +85,7 @@ void tu_unref(TU *tu, char *reason) {
  */
 // #if 0
 int tu_fileno(TU *tu) {
-    if(tu->fd)
+    if(tu && tu->fd)
         return tu->fd;
     else
         return -1;
@@ -89,7 +104,7 @@ int tu_fileno(TU *tu) {
  */
 // #if 0
 int tu_extension(TU *tu) {
-    if(tu->extension)
+    if(tu && tu->extension)
         return tu->extension;
     else
         return -1;
@@ -106,10 +121,11 @@ int tu_extension(TU *tu) {
 // #if 0
 int tu_set_extension(TU *tu, int ext) {
     tu->extension = ext;
-    char str[12];
-    if(sprintf(str, "ON HOOK %d\r\n", ext) == -1)
+    int digits = getNumDigits(ext);
+    char str[11 + digits];
+    if(sprintf(str, "%s %d\r\n", tu_state_names[TU_ON_HOOK], ext) == -1)
         return -1;
-    if(write(ext, str, sizeof(str)) == -1)
+    if(write(ext, str, sizeof(str)-1) == -1)
         return -1;
     return 0;
 }
@@ -151,9 +167,9 @@ int tu_dial(TU *tu, TU *target) {
         if(tu->current_state == TU_DIAL_TONE){
             tu->current_state = TU_ERROR;
             char str[8];
-            if(sprintf(str, "ERROR\r\n") == -1)
+            if(sprintf(str, "%s\r\n", tu_state_names[TU_ERROR]) == -1)
                 return -1;
-            if(write(tu->fd, str, sizeof(str)) == -1)
+            if(write(tu->fd, str, sizeof(str)-1) == -1)
                 return -1;
         }
         return 0;
@@ -164,18 +180,18 @@ int tu_dial(TU *tu, TU *target) {
     if(tu == target){
         tu->current_state = TU_BUSY_SIGNAL;
         char str[14];
-        if(sprintf(str, "BUSY SIGNAL\r\n") == -1)
+        if(sprintf(str, "%s\r\n", tu_state_names[TU_BUSY_SIGNAL]) == -1)
             return -1;
-        if(write(tu->fd, str, sizeof(str)) == -1)
+        if(write(tu->fd, str, sizeof(str)-1) == -1)
             return -1;
         return 0;
     }
     if((target->peer != NULL) || (target->current_state != TU_ON_HOOK)){
         tu->current_state = TU_BUSY_SIGNAL;
         char str[14];
-        if(sprintf(str, "BUSY SIGNAL\r\n") == -1)
+        if(sprintf(str, "%s\r\n", tu_state_names[TU_BUSY_SIGNAL]) == -1)
             return -1;
-        if(write(tu->fd, str, sizeof(str)) == -1)
+        if(write(tu->fd, str, sizeof(str)-1) == -1)
             return -1;
         return 0;
     }
@@ -188,16 +204,16 @@ int tu_dial(TU *tu, TU *target) {
 
     target->current_state = TU_RINGING;
     char str[10];
-    if(sprintf(str, "RINGING\r\n") == -1)
+    if(sprintf(str, "%s\r\n", tu_state_names[TU_RINGING]) == -1)
         return -1;
-    if(write(target->fd, str, sizeof(str)) == -1)
+    if(write(target->fd, str, sizeof(str)-1) == -1)
         return -1;
 
     tu->current_state = TU_RING_BACK;
     char strt[12];
-    if(sprintf(strt, "RING BACK\r\n") == -1)
+    if(sprintf(strt, "%s\r\n", tu_state_names[TU_RING_BACK]) == -1)
         return -1;
-    if(write(tu->fd, strt, sizeof(strt)) == -1)
+    if(write(tu->fd, strt, sizeof(strt)-1) == -1)
         return -1;
 
     return 0;
@@ -229,25 +245,27 @@ int tu_pickup(TU *tu) {
     if(tu->current_state == TU_ON_HOOK){
         tu->current_state = TU_DIAL_TONE;
         char str[12];
-        if(sprintf(str, "DIAL TONE\r\n") == -1)
+        if(sprintf(str, "%s\r\n", tu_state_names[TU_DIAL_TONE]) == -1)
             return -1;
-        if(write(tu->fd, str, sizeof(str)) == -1)
+        if(write(tu->fd, str, sizeof(str)-1) == -1)
             return -1;
         return 0;
     }
     else if(tu->current_state == TU_RINGING){
         tu->current_state = TU_CONNECTED;
-        char str[14];
-        if(sprintf(str, "CONNECTED %d\r\n", tu->peer->extension) == -1)
+        int digits = getNumDigits(tu->peer->extension);
+        char str[13+digits];
+        if(sprintf(str, "%s %d\r\n", tu_state_names[TU_CONNECTED], tu->peer->extension) == -1)
             return -1;
-        if(write(tu->fd, str, sizeof(str)) == -1)
+        if(write(tu->fd, str, sizeof(str)-1) == -1)
             return -1;
 
         tu->peer->current_state = TU_CONNECTED;
-        char strt[14];
-        if(sprintf(strt, "CONNECTED %d\r\n", tu->extension) == -1)
+        digits = getNumDigits(tu->extension);
+        char strt[13+digits];
+        if(sprintf(strt, "%s %d\r\n", tu_state_names[TU_CONNECTED], tu->extension) == -1)
             return -1;
-        if(write(tu->peer->fd, strt, sizeof(strt)) == -1)
+        if(write(tu->peer->fd, strt, sizeof(strt)-1) == -1)
             return -1;
         return 0;
     }
@@ -280,44 +298,48 @@ int tu_pickup(TU *tu) {
 int tu_hangup(TU *tu) {
     if(tu->current_state == TU_CONNECTED || tu->current_state == TU_RINGING){
         tu->current_state = TU_ON_HOOK;
-        char str[12];
-        if(sprintf(str, "ON HOOK\r\n") == -1)
+        int digits = getNumDigits(tu->extension);
+        char str[11 + digits];
+        if(sprintf(str, "%s %d\r\n", tu_state_names[TU_ON_HOOK], tu->extension) == -1)
             return -1;
-        if(write(tu->fd, str, sizeof(str)) == -1)
+        if(write(tu->fd, str, sizeof(str)-1) == -1)
             return -1;
 
         tu->peer->current_state = TU_DIAL_TONE;
         char strt[12];
-        if(sprintf(strt, "DIAL TONE\r\n") == -1)
+        if(sprintf(strt, "%s\r\n", tu_state_names[TU_DIAL_TONE]) == -1)
             return -1;
-        if(write(tu->peer->fd, strt, sizeof(strt)) == -1)
+        if(write(tu->peer->fd, strt, sizeof(strt)-1) == -1)
             return -1;
 
         return 0;
     }
     if(tu->current_state == TU_RING_BACK){
         tu->current_state = TU_ON_HOOK;
-        char str[12];
-        if(sprintf(str, "ON HOOK\r\n") == -1)
+        int digits = getNumDigits(tu->extension);
+        char str[11 + digits];
+        if(sprintf(str, "%s %d\r\n", tu_state_names[TU_ON_HOOK], tu->extension) == -1)
             return -1;
-        if(write(tu->fd, str, sizeof(str)) == -1)
+        if(write(tu->fd, str, sizeof(str)-1) == -1)
             return -1;
 
         tu->peer->current_state = TU_ON_HOOK;
-        char strt[12];
-        if(sprintf(strt, "ON HOOK\r\n") == -1)
+        digits = getNumDigits(tu->peer->extension);
+        char strt[11 + digits];
+        if(sprintf(strt, "%s %d\r\n", tu_state_names[TU_ON_HOOK], tu->peer->extension) == -1)
             return -1;
-        if(write(tu->peer->fd, strt, sizeof(strt)) == -1)
+        if(write(tu->peer->fd, strt, sizeof(strt)-1) == -1)
             return -1;
 
         return 0;
     }
     if(tu->current_state == TU_DIAL_TONE || tu->current_state == TU_BUSY_SIGNAL || tu->current_state == TU_ERROR){
         tu->current_state = TU_ON_HOOK;
-        char str[12];
-        if(sprintf(str, "ON HOOK\r\n") == -1)
+        int digits = getNumDigits(tu->extension);
+        char str[11 + digits];
+        if(sprintf(str, "%s %d\r\n", tu_state_names[TU_ON_HOOK], tu->extension) == -1)
             return -1;
-        if(write(tu->fd, str, sizeof(str)) == -1)
+        if(write(tu->fd, str, sizeof(str)-1) == -1)
             return -1;
         return 0;
     }
@@ -344,15 +366,28 @@ int tu_chat(TU *tu, char *msg) {
         return -1;
     }
 
-    if(write(tu->peer->fd, msg, sizeof(msg)) == -1)
+    if(write(tu->peer->fd, msg, sizeof(msg)-1) == -1)
+        return -1;
+    if(write(tu->peer->fd, "\r\n", 2) == -1)
         return -1;
 
-    char str[14];
-    if(sprintf(str, "CONNECTED %d\r\n", tu->peer->extension) == -1)
+    int digits = getNumDigits(tu->peer->extension);
+    char str[13 + digits];
+    if(sprintf(str, "%s %d\r\n", tu_state_names[TU_CONNECTED], tu->peer->extension) == -1)
         return -1;
-    if(write(tu->fd, str, sizeof(str)) == -1)
+    if(write(tu->fd, str, sizeof(str)-1) == -1)
         return -1;
 
     return 0;
 }
 // #endif
+
+int getNumDigits(int x){
+    int count = 0;
+    int num = x;
+    while(num != 0){
+        num = num/10;
+        count++;
+    }
+    return count;
+}

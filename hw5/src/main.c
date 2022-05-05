@@ -27,18 +27,21 @@ int main(int argc, char* argv[]){
     // on which the server should listen.
 
     if(argc != 3)
-        terminate(EXIT_FAILURE);
+        exit(EXIT_FAILURE);
 
     if(strcmp(argv[1], "-p") != 0)
-        terminate(EXIT_FAILURE);
+        exit(EXIT_FAILURE);
 
     int port = atoi(argv[2]);
     if(port < 1024)
-        terminate(EXIT_FAILURE);
+        exit(EXIT_FAILURE);
 
     // Perform required initialization of the PBX module.
     debug("Initializing PBX...");
     pbx = pbx_init();
+
+    if(pbx == NULL)
+        exit(EXIT_FAILURE);
 
     // TODO: Set up the server socket and enter a loop to accept connections
     // on this socket.  For each connection, a thread should be started to

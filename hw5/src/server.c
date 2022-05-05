@@ -21,24 +21,32 @@ void *pbx_client_service(void *arg) {
     Pthread_detach(pthread_self());
 
     TU *t_u = tu_init(connectionfd);
-    pbx_register(pbx, t_u, connectionfd);
+    if(t_u == NULL)
+        return NULL;
+    int reg = pbx_register(pbx, t_u, connectionfd);
+    if(reg == -1)
+        return NULL;
 
     char *ch = malloc(1);
     if(ch == NULL){
-        exit(1);
+        return NULL;
     }
     char *ch_two = malloc(1);
     if(ch_two == NULL){
-        exit(1);
+        return NULL;
     }
     FILE *stream;
     char *buf;
     while(1){
         size_t len = 0;
-
+        // debug("outer\n");
         stream = open_memstream(&buf, &len);
-        rio_readn(connectionfd, ch, 1);
-        while(ch){
+        if(stream == NULL)
+            return NULL;
+        int r = rio_readn(connectionfd, ch, 1);
+        // debug("r = %d\n", r);
+        while(r > 0){
+            // debug("inner\n");
             if(strcmp(ch, "\r") == 0){
                 // *ch_two = NULL;
                 rio_readn(connectionfd, ch_two, 1);
@@ -47,57 +55,131 @@ void *pbx_client_service(void *arg) {
                     break;
                 }
                 else{
-                    fprintf(stream, "%s", ch);
-                    fflush(stream);
-                    fprintf(stream, "%s", ch_two);
-                    fflush(stream);
+                    if(fprintf(stream, "%s", ch) == -1){
+                        free(ch);
+                        free(ch_two);
+                        free(buf);
+                        fclose(stream);
+                        return NULL;
+                    }
+                    if(fflush(stream) < 0){
+                        free(ch);
+                        free(ch_two);
+                        free(buf);
+                        fclose(stream);
+                        return NULL;
+                    }
+                    if(fprintf(stream, "%s", ch_two) == -1){
+                        free(ch);
+                        free(ch_two);
+                        free(buf);
+                        fclose(stream);
+                        return NULL;
+                    }
+                    if(fflush(stream) < 0){
+                        free(ch);
+                        free(ch_two);
+                        free(buf);
+                        fclose(stream);
+                        return NULL;
+                    }
                     // free(ch_two);
                 }
             }
             else{
-                fprintf(stream, "%s", ch);
-                fflush(stream);
-                rio_readn(connectionfd, ch, 1);
+                if(fprintf(stream, "%s", ch) == -1){
+                    free(ch);
+                    free(ch_two);
+                    free(buf);
+                    fclose(stream);
+                    return NULL;
+                }
+                if(fflush(stream) < 0){
+                    free(ch);
+                    free(ch_two);
+                    free(buf);
+                    fclose(stream);
+                    return NULL;
+                }
+                r = rio_readn(connectionfd, ch, 1);
             }
         }
         // free(ch);
         fclose(stream);
-        if(strcmp(buf, "pickup") == 0){
-            tu_pickup(t_u);
+
+        if(r <= 0){
+            free(ch);
+            free(ch_two);
+            free(buf);
+            return NULL;
         }
-        else if(strcmp(buf, "hangup") == 0){
-            tu_hangup(t_u);
+
+        if(strcmp(buf, tu_command_names[TU_PICKUP_CMD]) == 0){
+            if(tu_pickup(t_u) == -1){
+                free(ch);
+                free(ch_two);
+                free(buf);
+                return NULL;
+            }
+        }
+        else if(strcmp(buf, tu_command_names[TU_HANGUP_CMD]) == 0){
+            if(tu_hangup(t_u) == -1){
+                free(ch);
+                free(ch_two);
+                free(buf);
+                return NULL;
+            }
         }
         else if(strncmp(buf, "dial ", 5) == 0){
             char **end = NULL;
             long res = strtol(buf+5, end, 10);
             if(res){
-                pbx_dial(pbx, t_u, res);
+                if(pbx_dial(pbx, t_u, res) == -1){
+                    free(ch);
+                    free(ch_two);
+                    free(buf);
+                    return NULL;
+                }
             }
             else{
                 if(errno != 0){
                     free(ch);
                     free(ch_two);
                     free(buf);
-                    exit(1);
+                    return NULL;
                 }
                 else if((buf+5) == *end){
                     free(ch);
                     free(ch_two);
                     free(buf);
-                    exit(1);
+                    return NULL;
                 }
                 else{
-                    pbx_dial(pbx, t_u, 0);
+                    if(pbx_dial(pbx, t_u, 0) == -1){
+                        free(ch);
+                        free(ch_two);
+                        free(buf);
+                        return NULL;
+                    }
                 }
 
             }
         }
         else if(strncmp(buf, "chat ", 5) == 0){
-            tu_chat(t_u, buf+5);
+            if(tu_chat(t_u, buf+5) == -1){
+                free(ch);
+                free(ch_two);
+                free(buf);
+                return NULL;
+            }
         }
-        else if(strncmp(buf, "chat", 4) == 0){
-            tu_chat(t_u, buf+4);
+        else if(strncmp(buf, tu_command_names[TU_CHAT_CMD], 4) == 0){
+            if(tu_chat(t_u, buf+4) == -1){
+                free(ch);
+                free(ch_two);
+                free(buf);
+                return NULL;
+            }
         }
 
         free(buf);
@@ -105,7 +187,7 @@ void *pbx_client_service(void *arg) {
     }
     free(ch);
     free(ch_two);
-
+    return NULL;
 
 }
 // #endif
