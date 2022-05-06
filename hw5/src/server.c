@@ -53,7 +53,6 @@ void *pbx_client_service(void *arg) {
         if(stream == NULL){
             pbx_unregister(pbx, t_u);
             close(connectionfd);
-            debug("qqq\n");
             return NULL;
         }
         int r = rio_readn(connectionfd, ch, 1);
@@ -75,7 +74,6 @@ void *pbx_client_service(void *arg) {
                         fclose(stream);
                         pbx_unregister(pbx, t_u);
                         close(connectionfd);
-                        debug("ppp\n");
                         return NULL;
                     }
                     if(fflush(stream) < 0){
@@ -85,7 +83,6 @@ void *pbx_client_service(void *arg) {
                         fclose(stream);
                         pbx_unregister(pbx, t_u);
                         close(connectionfd);
-                        debug("oooo\n");
                         return NULL;
                     }
                     if(fprintf(stream, "%s", ch_two) == -1){
@@ -95,7 +92,6 @@ void *pbx_client_service(void *arg) {
                         fclose(stream);
                         pbx_unregister(pbx, t_u);
                         close(connectionfd);
-                        debug("nnn\n");
                         return NULL;
                     }
                     if(fflush(stream) < 0){
@@ -105,7 +101,6 @@ void *pbx_client_service(void *arg) {
                         fclose(stream);
                         pbx_unregister(pbx, t_u);
                         close(connectionfd);
-                        debug("mmm\n");
                         return NULL;
                     }
                     // free(ch_two);
@@ -119,7 +114,6 @@ void *pbx_client_service(void *arg) {
                     fclose(stream);
                     pbx_unregister(pbx, t_u);
                     close(connectionfd);
-                    debug("llll\n");
                     return NULL;
                 }
                 if(fflush(stream) < 0){
@@ -129,7 +123,6 @@ void *pbx_client_service(void *arg) {
                     fclose(stream);
                     pbx_unregister(pbx, t_u);
                     close(connectionfd);
-                    debug("kkkk\n");
                     return NULL;
                 }
                 r = rio_readn(connectionfd, ch, 1);
@@ -144,7 +137,6 @@ void *pbx_client_service(void *arg) {
             free(buf);
             pbx_unregister(pbx, t_u);
             close(connectionfd);
-            debug("jjjj\n");
             return NULL;
         }
 
@@ -155,7 +147,6 @@ void *pbx_client_service(void *arg) {
                 free(buf);
                 pbx_unregister(pbx, t_u);
                 close(connectionfd);
-                debug("iiii\n");
                 return NULL;
             }
         }
@@ -166,7 +157,6 @@ void *pbx_client_service(void *arg) {
                 free(buf);
                 pbx_unregister(pbx, t_u);
                 close(connectionfd);
-                debug("hhh\n");
                 return NULL;
             }
         }
@@ -180,7 +170,6 @@ void *pbx_client_service(void *arg) {
                     free(buf);
                     pbx_unregister(pbx, t_u);
                     close(connectionfd);
-                    debug("gggg\n");
                     return NULL;
                 }
             }
@@ -191,7 +180,6 @@ void *pbx_client_service(void *arg) {
                     free(buf);
                     pbx_unregister(pbx, t_u);
                     close(connectionfd);
-                    debug("ffff\n");
                     return NULL;
                 }
                 else if((buf+5) == *end){
@@ -200,7 +188,6 @@ void *pbx_client_service(void *arg) {
                     free(buf);
                     pbx_unregister(pbx, t_u);
                     close(connectionfd);
-                    debug("eeee\n");
                     return NULL;
                 }
                 else{
@@ -210,7 +197,6 @@ void *pbx_client_service(void *arg) {
                         free(buf);
                         pbx_unregister(pbx, t_u);
                         close(connectionfd);
-                        debug("ddd\n");
                         return NULL;
                     }
                 }
@@ -224,7 +210,6 @@ void *pbx_client_service(void *arg) {
                 free(buf);
                 pbx_unregister(pbx, t_u);
                 close(connectionfd);
-                debug("ccc\n");
                 return NULL;
             }
         }
@@ -235,7 +220,6 @@ void *pbx_client_service(void *arg) {
                 free(buf);
                 pbx_unregister(pbx, t_u);
                 close(connectionfd);
-                debug("bbbb\n");
                 return NULL;
             }
         }
@@ -245,7 +229,6 @@ void *pbx_client_service(void *arg) {
     }
     free(ch);
     free(ch_two);
-    debug("aaa\n");
     pbx_unregister(pbx, t_u);
     close(connectionfd);
     return NULL;

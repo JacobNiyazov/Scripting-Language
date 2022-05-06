@@ -65,8 +65,8 @@ void pbx_shutdown(PBX *pbx) {
 }
 // #endif
 
-/*
- * Register a telephone unit with a PBX at a specified extension number.
+
+ /* Register a telephone unit with a PBX at a specified extension number.
  * This amounts to "plugging a telephone unit into the PBX".
  * The TU is initialized to the TU_ON_HOOK state.
  * The reference count of the TU is increased and the PBX retains this reference
